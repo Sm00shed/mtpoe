@@ -15,7 +15,7 @@ use error::MtpoeError;
 use output::*;
 use spi::{
     PoeProto, SpiDevice,
-    POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_TEMPERAT, POE_CMD_TEMPERAT_V4,
+    POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_TEMPERAT,
     POE_CMD_ON_OFF, POE_CMD_STATE, POE_CMD_PORT_STATE_BASE,
 };
 use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
@@ -133,32 +133,25 @@ fn cmd_fw(ctx: &Context) -> Result<(), MtpoeError> {
     Ok(())
 }
 
-fn cmd_voltage(ctx: &Context) -> Result<(), MtpoeError> {
+/// Read the input voltage in volts, rounded to two decimals.
+fn read_voltage(ctx: &Context) -> Result<f32, MtpoeError> {
     let [hi, lo] = ctx.spi.query(POE_CMD_INP_VOLT, 0, 0)?;
     let x = (hi as u32) << 8 | lo as u32;
     let v = match ctx.proto {
         PoeProto::V2 => x as f32 * 35.7 / 1024.0,
         PoeProto::V3 | PoeProto::V4 => x as f32 / 100.0,
     };
-    print_json(&Voltage { voltage_v: (v * 100.0).round() / 100.0 });
-    Ok(())
+    Ok((v * 100.0).round() / 100.0)
 }
 
-fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
+/// Read the controller temperature in degrees Celsius.
+fn read_temperature(ctx: &Context) -> Result<i32, MtpoeError> {
+    let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
+    let x = (hi as u32) << 8 | lo as u32;
     let c = match ctx.proto {
-        PoeProto::V4 => {
-            // TODO: implement V4 temperature via 0x76 (SAMD20 native command)
-            // For now return 0 as placeholder
-            0
-        }
-        PoeProto::V2 => {
-            let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
-            let x = (hi as u32) << 8 | lo as u32;
-            x as i32 - 273
-        }
-        PoeProto::V3 => {
-            let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
-            let x = (hi as u32) << 8 | lo as u32;
+        PoeProto::V2 => x as i32 - 273,
+        // V3 and V4 share the 12-count block formula (mtpoe_ctrl.c:126-142).
+        PoeProto::V3 | PoeProto::V4 => {
             let n = x / 12;
             let o = x - n * 12;
             let mut c = (n * 5) as i32 - 273;
@@ -169,7 +162,16 @@ fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
             c
         }
     };
-    print_json(&Temperature { temperature_c: c });
+    Ok(c)
+}
+
+fn cmd_voltage(ctx: &Context) -> Result<(), MtpoeError> {
+    print_json(&Voltage { voltage_v: read_voltage(ctx)? });
+    Ok(())
+}
+
+fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
+    print_json(&Temperature { temperature_c: read_temperature(ctx)? });
     Ok(())
 }
 
@@ -299,44 +301,14 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
 
 fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
     let [major, minor] = ctx.spi.query(POE_CMD_FW_VER, 0, 0)?;
-
-    let [hi, lo] = ctx.spi.query(POE_CMD_INP_VOLT, 0, 0)?;
-    let x = (hi as u32) << 8 | lo as u32;
-    let voltage = match ctx.proto {
-        PoeProto::V2 => x as f32 * 35.7 / 1024.0,
-        PoeProto::V3 | PoeProto::V4 => x as f32 / 100.0,
-    };
-
-    let temp = match ctx.proto {
-        PoeProto::V4 => {
-            // TODO: implement V4 temperature via 0x76
-            0
-        }
-        PoeProto::V2 => {
-            let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
-            let x = (hi as u32) << 8 | lo as u32;
-            x as i32 - 273
-        }
-        PoeProto::V3 => {
-            let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
-            let x = (hi as u32) << 8 | lo as u32;
-            let n = x / 12;
-            let o = x - n * 12;
-            let mut c = (n * 5) as i32 - 273;
-            if o > 9 { c += 4; }
-            else if o > 6 { c += 3; }
-            else if o > 4 { c += 2; }
-            else if o > 2 { c += 1; }
-            c
-        }
-    };
-
+    let voltage = read_voltage(ctx)?;
+    let temp = read_temperature(ctx)?;
     let poe_config = get_poe_config(ctx)?;
     let poe_status = get_poe_status(ctx)?;
 
     print_json(&FullStatus {
         fw_version: format!("{major}.{minor:02}"),
-        voltage_v: (voltage * 100.0).round() / 100.0,
+        voltage_v: voltage,
         temperature_c: temp,
         poe_config,
         poe_status,

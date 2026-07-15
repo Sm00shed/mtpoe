@@ -22,7 +22,6 @@ pub const POE_CMD_TEMPERAT: u8 = 0x43;
 pub const POE_CMD_ON_OFF: u8 = 0x44;
 pub const POE_CMD_STATE: u8 = 0x45;
 pub const POE_CMD_PORT_STATE_BASE: u8 = 0x50;
-pub const POE_CMD_TEMPERAT_V4: u8 = 0x76; // V4 (SAMD20) temperature command
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PoeProto {
