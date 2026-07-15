@@ -5,7 +5,6 @@ mod spi;
 mod uci;
 
 use clap::{Parser, Subcommand};
-use serde_json::json;
 
 use board::{detect_board, POE_BOARDS};
 use error::MtpoeError;
@@ -43,6 +42,10 @@ struct Cli {
     /// Verbose SPI debug output on stderr
     #[arg(long)]
     verbose: bool,
+
+    /// Machine-readable JSON output (default is human-readable text)
+    #[arg(long)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -98,6 +101,7 @@ struct Context {
     ports_num: usize,
     port_state_map: &'static [u8],
     uci_key: String,
+    json: bool,
 }
 
 // ── PoE value helpers ─────────────────────────────────────────────────────────
@@ -149,9 +153,12 @@ fn hw_port(ports_num: usize, user_port: usize) -> Result<u8, MtpoeError> {
 
 fn cmd_fw(ctx: &Context) -> Result<(), MtpoeError> {
     let [major, minor] = ctx.spi.query(POE_CMD_FW_VER, 0, 0)?;
-    print_json(&FwVersion {
-        fw_version: format!("{major}.{minor:02}"),
-    });
+    emit(
+        &FwVersion {
+            fw_version: format!("{major}.{minor:02}"),
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
@@ -195,16 +202,22 @@ fn read_temperature(ctx: &Context) -> Result<i32, MtpoeError> {
 }
 
 fn cmd_voltage(ctx: &Context) -> Result<(), MtpoeError> {
-    print_json(&Voltage {
-        voltage_v: read_voltage(ctx)?,
-    });
+    emit(
+        &Voltage {
+            voltage_v: read_voltage(ctx)?,
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
 fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
-    print_json(&Temperature {
-        temperature_c: read_temperature(ctx)?,
-    });
+    emit(
+        &Temperature {
+            temperature_c: read_temperature(ctx)?,
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
@@ -256,12 +269,15 @@ fn get_poe_status(ctx: &Context) -> Result<Vec<PortStatus>, MtpoeError> {
 }
 
 fn cmd_poe_show(ctx: &Context) -> Result<(), MtpoeError> {
-    let config = get_poe_config(ctx)?;
-    let status = get_poe_status(ctx)?;
-    print_json(&json!({
-        "poe_config": config,
-        "poe_status": status,
-    }));
+    let poe_config = get_poe_config(ctx)?;
+    let poe_status = get_poe_status(ctx)?;
+    emit(
+        &PortList {
+            poe_config,
+            poe_status,
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
@@ -281,11 +297,14 @@ fn cmd_port_show_one(ctx: &Context, user_port: usize) -> Result<(), MtpoeError> 
         None => None,
     };
 
-    print_json(&PortDetail {
-        port: user_port,
-        config,
-        status: poe_status_value(raw),
-    });
+    emit(
+        &PortDetail {
+            port: user_port,
+            config,
+            status: poe_status_value(raw),
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
@@ -302,9 +321,12 @@ fn cmd_poe_set(ctx: &Context, user_port: usize, val: u8) -> Result<(), MtpoeErro
         )));
     }
 
-    print_json(&SetPoeResult {
-        status: "ok".into(),
-    });
+    emit(
+        &SetPoeResult {
+            status: "ok".into(),
+        },
+        ctx.json,
+    );
     Ok(())
 }
 
@@ -349,12 +371,15 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
         new_config[user_port - 1].config = poe_config_str(val);
     }
 
-    print_json(&LoadUciResult {
-        status: "ok".into(),
-        processed_ports: processed,
-        readback: current_raw.is_some(),
-        poe_config: new_config,
-    });
+    emit(
+        &LoadUciResult {
+            status: "ok".into(),
+            processed_ports: processed,
+            readback: current_raw.is_some(),
+            poe_config: new_config,
+        },
+        ctx.json,
+    );
 
     Ok(())
 }
@@ -366,13 +391,16 @@ fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
     let poe_config = get_poe_config(ctx)?;
     let poe_status = get_poe_status(ctx)?;
 
-    print_json(&FullStatus {
-        fw_version: format!("{major}.{minor:02}"),
-        voltage_v: voltage,
-        temperature_c: temp,
-        poe_config,
-        poe_status,
-    });
+    emit(
+        &FullStatus {
+            fw_version: format!("{major}.{minor:02}"),
+            voltage_v: voltage,
+            temperature_c: temp,
+            poe_config,
+            poe_status,
+        },
+        ctx.json,
+    );
 
     Ok(())
 }
@@ -410,16 +438,19 @@ fn cmd_probe(ctx: &Context, cmd: u8, b1: u8, b2: u8, force: bool) -> Result<(), 
     // Data word: response bytes 6..8 (big-endian), same position as `query`.
     let data = (rx[6] as u16) << 8 | rx[7] as u16;
 
-    print_json(&ProbeResult {
-        action: "probe".into(),
-        cmd: format!("0x{cmd:02X}"),
-        b1,
-        b2,
-        tx: hex(&tx),
-        rx: hex(&rx),
-        data_hex: format!("0x{data:04X}"),
-        data_dec: data,
-    });
+    emit(
+        &ProbeResult {
+            action: "probe".into(),
+            cmd: format!("0x{cmd:02X}"),
+            b1,
+            b2,
+            tx: hex(&tx),
+            rx: hex(&rx),
+            data_hex: format!("0x{data:04X}"),
+            data_dec: data,
+        },
+        ctx.json,
+    );
 
     Ok(())
 }
@@ -457,6 +488,7 @@ fn execute(cli: &Cli) -> Result<(), MtpoeError> {
         ports_num: board.ports_num,
         port_state_map: board.port_state_map,
         uci_key: cli.uci_key.clone(),
+        json: cli.json,
     };
 
     match &cli.command {
@@ -480,7 +512,12 @@ fn execute(cli: &Cli) -> Result<(), MtpoeError> {
         }
         Commands::Apply => cmd_apply(&ctx),
         Commands::Version => {
-            print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }));
+            emit(
+                &ToolVersion {
+                    version: env!("CARGO_PKG_VERSION").into(),
+                },
+                ctx.json,
+            );
             Ok(())
         }
         Commands::Probe {
@@ -501,7 +538,11 @@ fn run() -> Result<(), MtpoeError> {
     let cli = Cli::parse();
     let result = execute(&cli);
     if let Err(e) = &result {
-        print_error(-1, &e.to_string());
+        if cli.json {
+            print_error(-1, &e.to_string());
+        } else {
+            eprintln!("error: {e}");
+        }
     }
     result
 }
