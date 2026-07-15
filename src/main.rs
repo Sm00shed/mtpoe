@@ -4,9 +4,6 @@ mod output;
 mod spi;
 mod uci;
 
-use std::thread;
-use std::time::Duration;
-
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
@@ -44,12 +41,8 @@ struct Cli {
     board: Option<usize>,
 
     /// Verbose SPI debug output on stderr
-    #[arg(long, short)]
+    #[arg(long)]
     verbose: bool,
-
-    /// Repeat command every N seconds (0 = run once)
-    #[arg(long, default_value = "0")]
-    period: u64,
 
     #[command(subcommand)]
     command: Commands,
@@ -59,18 +52,17 @@ struct Cli {
 enum Commands {
     /// Show all PoE info (fw, voltage, temp, port status)
     Status,
-    /// Show firmware version of PoE controller
-    Fw,
-    /// Show input voltage
-    Voltage,
-    /// Show temperature
-    Temp,
-    /// Show PoE port config and status
-    Poe {
-        /// Port number (1-based, user-facing)
+    /// Show a single reading
+    Show {
+        /// Which reading to show
+        what: ShowWhat,
+    },
+    /// Show or set PoE ports (1-based)
+    Port {
+        /// Port number (omit to list all ports)
         port: Option<usize>,
-        /// Value: off | on | auto
-        value: Option<String>,
+        /// New mode: off | on | auto (omit to just show the port)
+        mode: Option<String>,
     },
     /// Load and apply PoE config from UCI
     Apply,
@@ -89,6 +81,13 @@ enum Commands {
         #[arg(long)]
         force_dangerous: bool,
     },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ShowWhat {
+    Fw,
+    Voltage,
+    Temp,
 }
 
 // ── Runtime context ───────────────────────────────────────────────────────────
@@ -266,6 +265,30 @@ fn cmd_poe_show(ctx: &Context) -> Result<(), MtpoeError> {
     Ok(())
 }
 
+fn cmd_port_show_one(ctx: &Context, user_port: usize) -> Result<(), MtpoeError> {
+    // Validate the port range (reuses the bounds check in hw_port).
+    hw_port(ctx.ports_num, user_port)?;
+
+    let cmd = POE_CMD_PORT_STATE_BASE + ctx.port_state_map[user_port - 1];
+    let [hi, lo] = ctx.spi.query(cmd, 0, 0)?;
+    let raw = (hi as u16) << 8 | lo as u16;
+
+    let config = match get_poe_config(ctx)? {
+        Some(configs) => configs
+            .iter()
+            .find(|c| c.port == user_port)
+            .map(|c| c.config.clone()),
+        None => None,
+    };
+
+    print_json(&PortDetail {
+        port: user_port,
+        config,
+        status: poe_status_value(raw),
+    });
+    Ok(())
+}
+
 fn cmd_poe_set(ctx: &Context, user_port: usize, val: u8) -> Result<(), MtpoeError> {
     if val > 2 {
         return Err(MtpoeError::InvalidValue("PoE value must be 0..2".into()));
@@ -403,9 +426,7 @@ fn cmd_probe(ctx: &Context, cmd: u8, b1: u8, b2: u8, force: bool) -> Result<(), 
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-fn run() -> Result<(), MtpoeError> {
-    let cli = Cli::parse();
-
+fn execute(cli: &Cli) -> Result<(), MtpoeError> {
     // Board detection
     let board = if let Some(idx) = cli.board {
         POE_BOARDS
@@ -428,7 +449,6 @@ fn run() -> Result<(), MtpoeError> {
     };
 
     let dev_path = cli.dev.as_deref().unwrap_or(board.spidev);
-
     let spi = SpiDevice::open(dev_path, proto, cli.verbose)?;
 
     let ctx = Context {
@@ -436,84 +456,58 @@ fn run() -> Result<(), MtpoeError> {
         proto,
         ports_num: board.ports_num,
         port_state_map: board.port_state_map,
-        uci_key: cli.uci_key,
+        uci_key: cli.uci_key.clone(),
     };
 
-    // Command loop (period=0 → run once, period>0 → monitoring daemon)
-    const MAX_CONSECUTIVE_ERRORS: u32 = 3;
-    let mut consecutive_errors: u32 = 0;
-
-    loop {
-        let result = match &cli.command {
-            Commands::Status => cmd_status(&ctx),
-            Commands::Fw => cmd_fw(&ctx),
-            Commands::Voltage => cmd_voltage(&ctx),
-            Commands::Temp => cmd_temperature(&ctx),
-            Commands::Poe { port: None, .. } => cmd_poe_show(&ctx),
-            Commands::Poe {
-                port: Some(p),
-                value: Some(v),
-            } => {
-                let val = parse_poe_value(v)?;
-                cmd_poe_set(&ctx, *p, val)
-            }
-            Commands::Poe {
-                port: Some(_),
-                value: None,
-            } => Err(MtpoeError::InvalidValue(
-                "poe <port> requires a value: off|on|auto".into(),
-            )),
-            Commands::Apply => cmd_apply(&ctx),
-            Commands::Version => {
-                print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }));
-                Ok(())
-            }
-            Commands::Probe {
-                cmd,
-                b1,
-                b2,
-                force_dangerous,
-            } => {
-                let c = parse_byte(cmd)?;
-                let a1 = b1.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
-                let a2 = b2.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
-                cmd_probe(&ctx, c, a1, a2, *force_dangerous)
-            }
-        };
-
-        match result {
-            Ok(_) => {
-                consecutive_errors = 0;
-            }
-            Err(e) => {
-                print_error(-1, &e.to_string());
-                consecutive_errors += 1;
-
-                let should_exit =
-                    e.is_fatal() || cli.period == 0 || consecutive_errors >= MAX_CONSECUTIVE_ERRORS;
-
-                if should_exit {
-                    eprintln!(
-                        "aborting after {} consecutive error(s): {}",
-                        consecutive_errors, e
-                    );
-                    return Err(e);
-                }
-            }
+    match &cli.command {
+        Commands::Status => cmd_status(&ctx),
+        Commands::Show { what } => match what {
+            ShowWhat::Fw => cmd_fw(&ctx),
+            ShowWhat::Voltage => cmd_voltage(&ctx),
+            ShowWhat::Temp => cmd_temperature(&ctx),
+        },
+        Commands::Port { port: None, .. } => cmd_poe_show(&ctx),
+        Commands::Port {
+            port: Some(p),
+            mode: None,
+        } => cmd_port_show_one(&ctx, *p),
+        Commands::Port {
+            port: Some(p),
+            mode: Some(m),
+        } => {
+            let val = parse_poe_value(m)?;
+            cmd_poe_set(&ctx, *p, val)
         }
-
-        if cli.period == 0 {
-            break;
+        Commands::Apply => cmd_apply(&ctx),
+        Commands::Version => {
+            print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }));
+            Ok(())
         }
-        thread::sleep(Duration::from_secs(cli.period));
+        Commands::Probe {
+            cmd,
+            b1,
+            b2,
+            force_dangerous,
+        } => {
+            let c = parse_byte(cmd)?;
+            let a1 = b1.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
+            let a2 = b2.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
+            cmd_probe(&ctx, c, a1, a2, *force_dangerous)
+        }
     }
+}
 
-    Ok(())
+fn run() -> Result<(), MtpoeError> {
+    let cli = Cli::parse();
+    let result = execute(&cli);
+    if let Err(e) = &result {
+        print_error(-1, &e.to_string());
+    }
+    result
 }
 
 fn main() {
-    if let Err(e) = run() {
-        print_error(-1, &e.to_string());
+    if run().is_err() {
         std::process::exit(1);
     }
 }

@@ -50,6 +50,15 @@ pub struct PortStatus {
     pub status: PortStatusValue,
 }
 
+/// A single port's config (None on V4) and live status.
+#[derive(Serialize)]
+pub struct PortDetail {
+    pub port: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    pub status: PortStatusValue,
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum PortStatusValue {
