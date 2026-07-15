@@ -1,6 +1,6 @@
-use std::fs;
-use crate::spi::PoeProto;
 use crate::error::MtpoeError;
+use crate::spi::PoeProto;
+use std::fs;
 
 pub const BOARD_NAME_FILE: &str = "/tmp/sysinfo/board_name";
 

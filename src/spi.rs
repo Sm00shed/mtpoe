@@ -1,7 +1,7 @@
+use crate::error::MtpoeError;
+use crc::{Crc, CRC_8_MAXIM_DOW};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
-use crc::{Crc, CRC_8_MAXIM_DOW};
-use crate::error::MtpoeError;
 
 // SPI configuration
 const SPI_MODE: u8 = 0;
@@ -81,7 +81,11 @@ impl SpiDevice {
             .map_err(|e| MtpoeError::Spi(format!("cannot open {path}: {e}")))?;
 
         let fd = file.as_raw_fd();
-        let dev = Self { file, proto, verbose };
+        let dev = Self {
+            file,
+            proto,
+            verbose,
+        };
 
         // Initialize SPI parameters
         unsafe {
@@ -149,27 +153,33 @@ impl SpiDevice {
 
             if self.verbose {
                 eprint!("tx: ");
-                for b in &tx { eprint!("{b:02X} "); }
+                for b in &tx {
+                    eprint!("{b:02X} ");
+                }
                 eprintln!();
             }
 
-            let ret = unsafe {
-                libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _)
-            };
+            let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
 
             if self.verbose {
                 eprint!("rx: ");
-                for b in &rx { eprint!("{b:02X} "); }
+                for b in &rx {
+                    eprint!("{b:02X} ");
+                }
                 eprintln!();
             }
 
             if ret < 1 {
-                if attempt < MAX_RETRY { continue; }
+                if attempt < MAX_RETRY {
+                    continue;
+                }
                 return Err(MtpoeError::Spi("ioctl failed".into()));
             }
 
             if ret as usize != FRAME_LEN {
-                if attempt < MAX_RETRY { continue; }
+                if attempt < MAX_RETRY {
+                    continue;
+                }
                 return Err(MtpoeError::Spi(format!(
                     "expected {FRAME_LEN} bytes, got {ret}"
                 )));
@@ -183,7 +193,9 @@ impl SpiDevice {
             };
 
             if resp[0] != tx_crc_expected {
-                if attempt < MAX_RETRY { continue; }
+                if attempt < MAX_RETRY {
+                    continue;
+                }
                 return Err(MtpoeError::SpiCrc(format!(
                     "tx crc echo: got 0x{:02x}, expected 0x{:02x}",
                     resp[0], tx_crc_expected
@@ -191,7 +203,9 @@ impl SpiDevice {
             }
 
             if resp[1] != cmd {
-                if attempt < MAX_RETRY { continue; }
+                if attempt < MAX_RETRY {
+                    continue;
+                }
                 return Err(MtpoeError::SpiCmd(format!(
                     "cmd echo: got 0x{:02x}, expected 0x{:02x}",
                     resp[1], cmd
@@ -201,7 +215,9 @@ impl SpiDevice {
             // rx_crc covers [cmd, data0, data1], repeated twice
             let rx_crc = dallas_crc8(&resp[1..4]);
             if rx_crc != resp[4] || rx_crc != resp[5] {
-                if attempt < MAX_RETRY { continue; }
+                if attempt < MAX_RETRY {
+                    continue;
+                }
                 return Err(MtpoeError::SpiCrc(format!(
                     "rx crc: got 0x{:02x}/0x{:02x}, expected 0x{:02x}",
                     resp[4], resp[5], rx_crc
@@ -235,17 +251,19 @@ impl SpiDevice {
 
         if self.verbose {
             eprint!("tx: ");
-            for b in tx_data { eprint!("{b:02X} "); }
+            for b in tx_data {
+                eprint!("{b:02X} ");
+            }
             eprintln!();
         }
 
-        let ret = unsafe {
-            libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _)
-        };
+        let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
 
         if self.verbose {
             eprint!("rx: ");
-            for b in &rx { eprint!("{b:02X} "); }
+            for b in &rx {
+                eprint!("{b:02X} ");
+            }
             eprintln!();
         }
 

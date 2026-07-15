@@ -1,5 +1,5 @@
-use std::io::IsTerminal;
 use serde::Serialize;
+use std::io::IsTerminal;
 
 /// Print a serializable value as JSON.
 /// Pretty-prints if stdout is a terminal, compact if piped.
@@ -53,8 +53,8 @@ pub struct PortStatus {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum PortStatusValue {
-    Current(u32),       // active port — current in mA
-    State(String),      // off / auto / short / on (force-on no load)
+    Current(u32),  // active port — current in mA
+    State(String), // off / auto / short / on (force-on no load)
 }
 
 #[derive(Serialize)]

@@ -14,9 +14,8 @@ use board::{detect_board, POE_BOARDS};
 use error::MtpoeError;
 use output::*;
 use spi::{
-    PoeProto, SpiDevice,
-    POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_TEMPERAT,
-    POE_CMD_ON_OFF, POE_CMD_STATE, POE_CMD_PORT_STATE_BASE,
+    PoeProto, SpiDevice, POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_ON_OFF, POE_CMD_PORT_STATE_BASE,
+    POE_CMD_STATE, POE_CMD_TEMPERAT,
 };
 use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
 
@@ -96,8 +95,8 @@ struct Context {
 fn parse_poe_value(s: &str) -> Result<u8, MtpoeError> {
     match s {
         "off" | "0" => Ok(0),
-        "on"  | "1" => Ok(1),
-        "auto"| "2" => Ok(2),
+        "on" | "1" => Ok(1),
+        "auto" | "2" => Ok(2),
         _ => Err(MtpoeError::InvalidValue(format!(
             "'{s}' — must be off/on/auto or 0/1/2"
         ))),
@@ -162,10 +161,15 @@ fn temp_v3v4_celsius(x: u32) -> i32 {
     let n = x / 12;
     let o = x - n * 12;
     let mut c = (n * 5) as i32 - 273;
-    if o > 9 { c += 4; }
-    else if o > 6 { c += 3; }
-    else if o > 4 { c += 2; }
-    else if o > 2 { c += 1; }
+    if o > 9 {
+        c += 4;
+    } else if o > 6 {
+        c += 3;
+    } else if o > 4 {
+        c += 2;
+    } else if o > 2 {
+        c += 1;
+    }
     c
 }
 
@@ -181,12 +185,16 @@ fn read_temperature(ctx: &Context) -> Result<i32, MtpoeError> {
 }
 
 fn cmd_voltage(ctx: &Context) -> Result<(), MtpoeError> {
-    print_json(&Voltage { voltage_v: read_voltage(ctx)? });
+    print_json(&Voltage {
+        voltage_v: read_voltage(ctx)?,
+    });
     Ok(())
 }
 
 fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
-    print_json(&Temperature { temperature_c: read_temperature(ctx)? });
+    print_json(&Temperature {
+        temperature_c: read_temperature(ctx)?,
+    });
     Ok(())
 }
 
@@ -198,7 +206,13 @@ fn get_poe_config(ctx: &Context) -> Result<Option<Vec<PortConfig>>, MtpoeError> 
 
     let [hi, lo] = ctx.spi.query(POE_CMD_STATE, 0, 0)?;
     let mut x = (hi as u32) << 8 | lo as u32;
-    let mut configs = vec![PortConfig { port: 0, config: String::new() }; ctx.ports_num];
+    let mut configs = vec![
+        PortConfig {
+            port: 0,
+            config: String::new()
+        };
+        ctx.ports_num
+    ];
 
     for i in 0..ctx.ports_num {
         let val = (x & 0xF) as u8;
@@ -254,7 +268,9 @@ fn cmd_poe_set(ctx: &Context, user_port: usize, val: u8) -> Result<(), MtpoeErro
         )));
     }
 
-    print_json(&SetPoeResult { status: "ok".into() });
+    print_json(&SetPoeResult {
+        status: "ok".into(),
+    });
     Ok(())
 }
 
@@ -271,7 +287,10 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
 
     let mut processed = 0usize;
     let mut new_config: Vec<PortConfig> = (0..ctx.ports_num)
-        .map(|i| PortConfig { port: i + 1, config: "n/a".into() })
+        .map(|i| PortConfig {
+            port: i + 1,
+            config: "n/a".into(),
+        })
         .collect();
 
     for (user_port, val) in uci_ports {
@@ -329,8 +348,14 @@ fn cmd_raw_send(ctx: &Context, hex: &str) -> Result<(), MtpoeError> {
     let mut ptr: &str = hex;
     loop {
         let trimmed = ptr.trim_start();
-        if trimmed.is_empty() { break; }
-        let (token, rest) = trimmed.split_at(trimmed.find(|c: char| c.is_whitespace()).unwrap_or(trimmed.len()));
+        if trimmed.is_empty() {
+            break;
+        }
+        let (token, rest) = trimmed.split_at(
+            trimmed
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(trimmed.len()),
+        );
         let byte = u8::from_str_radix(token.trim_start_matches("0x"), 16)
             .map_err(|_| MtpoeError::InvalidValue(format!("invalid hex byte: '{token}'")))?;
         tx_data.push(byte);
@@ -343,8 +368,16 @@ fn cmd_raw_send(ctx: &Context, hex: &str) -> Result<(), MtpoeError> {
 
     let rx_data = ctx.spi.raw_query(&tx_data)?;
 
-    let tx_str = tx_data.iter().map(|b| format!("0x{b:02X}")).collect::<Vec<_>>().join(" ");
-    let rx_str = rx_data.iter().map(|b| format!("0x{b:02X}")).collect::<Vec<_>>().join(" ");
+    let tx_str = tx_data
+        .iter()
+        .map(|b| format!("0x{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let rx_str = rx_data
+        .iter()
+        .map(|b| format!("0x{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     print_json(&RawSendResult {
         action: "raw_send".into(),
@@ -362,7 +395,8 @@ fn run() -> Result<(), MtpoeError> {
 
     // Board detection
     let board = if let Some(idx) = cli.board {
-        POE_BOARDS.get(idx.saturating_sub(1))
+        POE_BOARDS
+            .get(idx.saturating_sub(1))
             .ok_or_else(|| MtpoeError::BoardDetection(format!("board index {idx} out of range")))?
     } else {
         detect_board()?
@@ -373,7 +407,11 @@ fn run() -> Result<(), MtpoeError> {
         Some(3) => PoeProto::V3,
         Some(4) => PoeProto::V4,
         None => board.proto,
-        Some(v) => return Err(MtpoeError::InvalidValue(format!("unknown proto version {v}"))),
+        Some(v) => {
+            return Err(MtpoeError::InvalidValue(format!(
+                "unknown proto version {v}"
+            )))
+        }
     };
 
     let dev_path = cli.dev.as_deref().unwrap_or(board.spidev);
@@ -394,20 +432,26 @@ fn run() -> Result<(), MtpoeError> {
 
     loop {
         let result = match &cli.command {
-            Commands::Status          => cmd_status(&ctx),
-            Commands::Fw              => cmd_fw(&ctx),
-            Commands::Voltage         => cmd_voltage(&ctx),
-            Commands::Temp            => cmd_temperature(&ctx),
+            Commands::Status => cmd_status(&ctx),
+            Commands::Fw => cmd_fw(&ctx),
+            Commands::Voltage => cmd_voltage(&ctx),
+            Commands::Temp => cmd_temperature(&ctx),
             Commands::Poe { port: None, .. } => cmd_poe_show(&ctx),
-            Commands::Poe { port: Some(p), value: Some(v) } => {
+            Commands::Poe {
+                port: Some(p),
+                value: Some(v),
+            } => {
                 let val = parse_poe_value(v)?;
                 cmd_poe_set(&ctx, *p, val)
             }
-            Commands::Poe { port: Some(_), value: None } => {
-                Err(MtpoeError::InvalidValue("poe <port> requires a value: off|on|auto".into()))
-            }
-            Commands::Apply           => cmd_apply(&ctx),
-            Commands::Version         => {
+            Commands::Poe {
+                port: Some(_),
+                value: None,
+            } => Err(MtpoeError::InvalidValue(
+                "poe <port> requires a value: off|on|auto".into(),
+            )),
+            Commands::Apply => cmd_apply(&ctx),
+            Commands::Version => {
                 print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }));
                 Ok(())
             }
@@ -422,9 +466,8 @@ fn run() -> Result<(), MtpoeError> {
                 print_error(-1, &e.to_string());
                 consecutive_errors += 1;
 
-                let should_exit = e.is_fatal()
-                    || cli.period == 0
-                    || consecutive_errors >= MAX_CONSECUTIVE_ERRORS;
+                let should_exit =
+                    e.is_fatal() || cli.period == 0 || consecutive_errors >= MAX_CONSECUTIVE_ERRORS;
 
                 if should_exit {
                     eprintln!(
@@ -493,6 +536,9 @@ mod tests {
         assert!(matches!(poe_status_value(0x800A), PortStatusValue::State(s) if s == "short"));
         assert!(matches!(poe_status_value(0x800F), PortStatusValue::State(s) if s == "on"));
         assert!(matches!(poe_status_value(0x8000), PortStatusValue::State(s) if s == "off"));
-        assert!(matches!(poe_status_value(0x0061), PortStatusValue::Current(97)));
+        assert!(matches!(
+            poe_status_value(0x0061),
+            PortStatusValue::Current(97)
+        ));
     }
 }

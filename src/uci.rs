@@ -1,5 +1,5 @@
-use std::process::Command;
 use crate::error::MtpoeError;
+use std::process::Command;
 
 /// UCI config file: /etc/config/mtpoe
 pub const UCI_CONFIG_FILE: &str = "mtpoe";
@@ -9,10 +9,7 @@ pub const DEFAULT_UCI_SECTION: &str = "poe";
 /// Reads PoE port values from /etc/config/mtpoe with a single `uci show`.
 /// Returns a Vec of (user_port, value) pairs; port is 1-based (chassis label),
 /// value is 0=off, 1=on, 2=auto. Only ports explicitly set in UCI are returned.
-pub fn load_poe_from_uci(
-    section: &str,
-    ports_num: usize,
-) -> Result<Vec<(usize, u8)>, MtpoeError> {
+pub fn load_poe_from_uci(section: &str, ports_num: usize) -> Result<Vec<(usize, u8)>, MtpoeError> {
     let base = format!("{UCI_CONFIG_FILE}.@{section}[0]");
     let output = Command::new("uci")
         .args(["show", &base])
