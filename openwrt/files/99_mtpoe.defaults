@@ -17,8 +17,8 @@ uci -q get mtpoe.@poe[0] || {
 	esac
 	if [ "$num" -gt 0 ]; then
 		uci set mtpoe.poe='poe'
-		n=0
-		while [ "$n" -lt "$num" ]; do
+		n=1
+		while [ "$n" -le "$num" ]; do
 			uci set mtpoe.poe.port$n='2'
 			n=$((n + 1))
 		done

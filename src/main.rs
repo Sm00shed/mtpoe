@@ -123,6 +123,19 @@ fn poe_status_value(raw: u16) -> PortStatusValue {
     }
 }
 
+/// Translate a chassis port (1..=ports_num, as labelled and used by CLI/UCI/JSON)
+/// to the SPI port argument. The hardware numbers ports in reverse order relative
+/// to the chassis labels (mtpoe_ctrl.c:277). Bounds-checked here so the reverse
+/// mapping can never underflow.
+fn hw_port(ports_num: usize, user_port: usize) -> Result<u8, MtpoeError> {
+    if user_port < 1 || user_port > ports_num {
+        return Err(MtpoeError::InvalidPort(format!(
+            "{user_port} — must be 1..{ports_num}"
+        )));
+    }
+    Ok((ports_num - user_port + 1) as u8)
+}
+
 // ── Command implementations ───────────────────────────────────────────────────
 
 fn cmd_fw(ctx: &Context) -> Result<(), MtpoeError> {
@@ -227,24 +240,15 @@ fn cmd_poe_show(ctx: &Context) -> Result<(), MtpoeError> {
 }
 
 fn cmd_poe_set(ctx: &Context, user_port: usize, val: u8) -> Result<(), MtpoeError> {
-    let max_port = ctx.ports_num;
-    if user_port < 1 || user_port > max_port {
-        return Err(MtpoeError::InvalidPort(format!(
-            "{user_port} — must be 1..{max_port}"
-        )));
-    }
     if val > 2 {
         return Err(MtpoeError::InvalidValue("PoE value must be 0..2".into()));
     }
 
-    // Internal port = user_port (already 1-based, hardware uses 1-based too)
-    let internal_port = ctx.ports_num - user_port + 1;
-    let [hi, lo] = ctx.spi.query(POE_CMD_ON_OFF, internal_port as u8, val)?;
-    let expected_hi = internal_port as u8;
-    let expected_lo = val;
-    if hi != expected_hi || lo != expected_lo {
+    let internal_port = hw_port(ctx.ports_num, user_port)?;
+    let [hi, lo] = ctx.spi.query(POE_CMD_ON_OFF, internal_port, val)?;
+    if hi != internal_port || lo != val {
         return Err(MtpoeError::Spi(format!(
-            "set_poe response mismatch: got 0x{hi:02x}{lo:02x}, expected 0x{expected_hi:02x}{expected_lo:02x}"
+            "set_poe response mismatch: got 0x{hi:02x}{lo:02x}, expected 0x{internal_port:02x}{val:02x}"
         )));
     }
 
@@ -268,12 +272,12 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
         .map(|i| PortConfig { port: i + 1, config: "n/a".into() })
         .collect();
 
-    for (port_idx, val) in uci_ports {
+    for (user_port, val) in uci_ports {
         // Check current state to avoid redundant SPI writes
         let current_val = if let Some(raw) = current_raw {
             let shift = match ctx.proto {
-                PoeProto::V2 => port_idx * 4,
-                PoeProto::V3 => (ctx.ports_num - port_idx - 1) * 4,
+                PoeProto::V2 => (user_port - 1) * 4,
+                PoeProto::V3 => (ctx.ports_num - user_port) * 4,
                 PoeProto::V4 => 0,
             };
             Some(((raw >> shift) & 0xF) as u8)
@@ -282,12 +286,12 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
         };
 
         if current_val != Some(val) {
-            let internal_port = ctx.ports_num - port_idx;
-            ctx.spi.query(POE_CMD_ON_OFF, internal_port as u8, val)?;
+            let internal_port = hw_port(ctx.ports_num, user_port)?;
+            ctx.spi.query(POE_CMD_ON_OFF, internal_port, val)?;
             processed += 1;
         }
 
-        new_config[port_idx].config = poe_config_str(val);
+        new_config[user_port - 1].config = poe_config_str(val);
     }
 
     print_json(&LoadUciResult {
