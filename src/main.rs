@@ -22,7 +22,10 @@ use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
 // ── CLI definition ────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "mtpoe", about = "MikroTik PoE controller utility")]
+#[command(
+    name = "mtpoe",
+    about = "Control MikroTik PoE ports (incl. per-port force)"
+)]
 struct Cli {
     /// SPI device path (auto-detected from board if not set)
     #[arg(long)]
@@ -71,7 +74,7 @@ enum Commands {
     },
     /// Load and apply PoE config from UCI
     Apply,
-    /// Show this utility version
+    /// Show this program's version
     Version,
     /// Probe a raw SPI register: send cmd/b1/b2 (framed with CRC) and print
     /// the raw response as hex and decimal, without interpretation.
