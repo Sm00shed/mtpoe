@@ -27,16 +27,6 @@ pub enum PoeProto {
     V4,
 }
 
-impl PoeProto {
-    pub fn version_number(self) -> u8 {
-        match self {
-            PoeProto::V2 => 2,
-            PoeProto::V3 => 3,
-            PoeProto::V4 => 4,
-        }
-    }
-}
-
 /// ioctl structures for spidev — Linux kernel ABI
 #[repr(C)]
 struct SpiIocTransfer {

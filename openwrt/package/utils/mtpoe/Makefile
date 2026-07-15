@@ -26,13 +26,14 @@ define Package/mtpoe
   SECTION:=utils
   CATEGORY:=Utilities
   DEPENDS:=+kmod-spi-dev
-  TITLE:=Management utility for MikroTik PoE V2/V3/V4
+  TITLE:=Per-port PoE control for MikroTik RB5009 and ATtiny/SAMD20 boards
   URL:=$(PKG_SOURCE_URL)
 endef
 
 define Package/mtpoe/description
-  Management utility for MikroTik PoE V2/V3/V4 controllers (ATtiny, SAMD20).
-  Replaces mtpoe-ctrl, written in Rust.
+  Per-port PoE control for MikroTik boards (ATtiny V2/V3, SAMD20 V4).
+  Exposes per-port force/passive modes beyond IEEE 802.3af/at, which the
+  standard PSE-PD path does not provide. Written in Rust.
 endef
 
 define Package/mtpoe/install

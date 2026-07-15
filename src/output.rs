@@ -38,7 +38,7 @@ pub struct Temperature {
     pub temperature_c: i32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct PortConfig {
     pub port: usize,
     pub config: String,

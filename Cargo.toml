@@ -1,8 +1,8 @@
 [package]
-name = "mtpoe-ctrl"
+name = "mtpoe"
 version = "0.1.0"
 edition = "2021"
-description = "MikroTik PoE controller utility for OpenWrt"
+description = "Per-port PoE control for MikroTik RB5009 — force/passive modes beyond 802.3af/at"
 license = "GPL-2.0"
 
 [[bin]]
