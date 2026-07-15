@@ -1,0 +1,9 @@
+config poe
+	option port0 '2'
+	option port1 '2'
+	option port2 '2'
+	option port3 '2'
+	option port4 '2'
+	option port5 '2'
+	option port6 '2'
+	option port7 '2'
