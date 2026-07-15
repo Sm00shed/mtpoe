@@ -35,7 +35,8 @@ pub static POE_BOARDS: &[PoeBoard] = &[
         port_state_map: &[0xd, 0xc, 0xb, 0xa],
     },
     PoeBoard {
-        // Only rb5009upr has PoE. rb5009 (without upr) does NOT have PoE.
+        // Only the RB5009UPr+S+IN has PoE; the non-PoE variant is a separate
+        // board (mikrotik,rb5009ug) and is intentionally not matched here.
         names: &["mikrotik,rb5009upr"],
         proto: PoeProto::V4,
         spidev: "/dev/spidev2.0",
