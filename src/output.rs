@@ -83,9 +83,17 @@ pub struct LoadUciResult {
     pub poe_config: Vec<PortConfig>,
 }
 
+/// Result of a `probe`: the framed request and raw response, plus the 16-bit
+/// data word as hex and decimal. No unit interpretation — the register may be
+/// unknown.
 #[derive(Serialize)]
-pub struct RawSendResult {
+pub struct ProbeResult {
     pub action: String,
+    pub cmd: String,
+    pub b1: u8,
+    pub b2: u8,
     pub tx: String,
     pub rx: String,
+    pub data_hex: String,
+    pub data_dec: u16,
 }

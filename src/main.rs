@@ -73,10 +73,18 @@ enum Commands {
     Apply,
     /// Show this utility version
     Version,
-    /// Send raw hex bytes over SPI (debug)
-    RawSend {
-        /// Hex bytes e.g. "41 00 00"
-        hex: String,
+    /// Probe a raw SPI register: send cmd/b1/b2 (framed with CRC) and print
+    /// the raw response as hex and decimal, without interpretation.
+    Probe {
+        /// Command byte, hex (0x41) or decimal
+        cmd: String,
+        /// Argument 1 (default 0)
+        b1: Option<String>,
+        /// Argument 2 (default 0)
+        b2: Option<String>,
+        /// Allow known-dangerous opcodes (firmware flash/reset)
+        #[arg(long)]
+        force_dangerous: bool,
     },
 }
 
@@ -343,46 +351,48 @@ fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
     Ok(())
 }
 
-fn cmd_raw_send(ctx: &Context, hex: &str) -> Result<(), MtpoeError> {
-    let mut tx_data = Vec::new();
-    let mut ptr: &str = hex;
-    loop {
-        let trimmed = ptr.trim_start();
-        if trimmed.is_empty() {
-            break;
-        }
-        let (token, rest) = trimmed.split_at(
-            trimmed
-                .find(|c: char| c.is_whitespace())
-                .unwrap_or(trimmed.len()),
-        );
-        let byte = u8::from_str_radix(token.trim_start_matches("0x"), 16)
-            .map_err(|_| MtpoeError::InvalidValue(format!("invalid hex byte: '{token}'")))?;
-        tx_data.push(byte);
-        ptr = rest;
+/// Opcodes that can brick the controller (firmware flash / reset). Refused by
+/// `probe` unless --force-dangerous is given.
+const DANGEROUS_OPCODES: [u8; 3] = [0x72, 0xB1, 0x1E];
+
+/// Parse a byte argument given as hex (0x41) or decimal.
+fn parse_byte(s: &str) -> Result<u8, MtpoeError> {
+    let t = s.trim();
+    let parsed = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        Some(hex) => u8::from_str_radix(hex, 16),
+        None => t.parse::<u8>(),
+    };
+    parsed.map_err(|_| MtpoeError::InvalidValue(format!("invalid byte: '{s}'")))
+}
+
+fn cmd_probe(ctx: &Context, cmd: u8, b1: u8, b2: u8, force: bool) -> Result<(), MtpoeError> {
+    if DANGEROUS_OPCODES.contains(&cmd) && !force {
+        return Err(MtpoeError::InvalidValue(format!(
+            "opcode 0x{cmd:02x} can brick the controller (firmware flash/reset); \
+             pass --force-dangerous to send it anyway"
+        )));
     }
 
-    if tx_data.is_empty() {
-        return Err(MtpoeError::InvalidValue("no bytes to send".into()));
-    }
+    let (tx, rx) = ctx.spi.probe(cmd, b1, b2)?;
+    let hex = |frame: &[u8]| {
+        frame
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // Data word: response bytes 6..8 (big-endian), same position as `query`.
+    let data = (rx[6] as u16) << 8 | rx[7] as u16;
 
-    let rx_data = ctx.spi.raw_query(&tx_data)?;
-
-    let tx_str = tx_data
-        .iter()
-        .map(|b| format!("0x{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let rx_str = rx_data
-        .iter()
-        .map(|b| format!("0x{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    print_json(&RawSendResult {
-        action: "raw_send".into(),
-        tx: tx_str,
-        rx: rx_str,
+    print_json(&ProbeResult {
+        action: "probe".into(),
+        cmd: format!("0x{cmd:02X}"),
+        b1,
+        b2,
+        tx: hex(&tx),
+        rx: hex(&rx),
+        data_hex: format!("0x{data:04X}"),
+        data_dec: data,
     });
 
     Ok(())
@@ -455,7 +465,17 @@ fn run() -> Result<(), MtpoeError> {
                 print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }));
                 Ok(())
             }
-            Commands::RawSend { hex } => cmd_raw_send(&ctx, hex),
+            Commands::Probe {
+                cmd,
+                b1,
+                b2,
+                force_dangerous,
+            } => {
+                let c = parse_byte(cmd)?;
+                let a1 = b1.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
+                let a2 = b2.as_deref().map(parse_byte).transpose()?.unwrap_or(0);
+                cmd_probe(&ctx, c, a1, a2, *force_dangerous)
+            }
         };
 
         match result {
@@ -509,6 +529,16 @@ mod tests {
         // Out of range is rejected, no underflow.
         assert!(hw_port(8, 0).is_err());
         assert!(hw_port(8, 9).is_err());
+    }
+
+    #[test]
+    fn parse_byte_accepts_hex_and_decimal() {
+        assert_eq!(parse_byte("0x41").unwrap(), 0x41);
+        assert_eq!(parse_byte("0X41").unwrap(), 0x41);
+        assert_eq!(parse_byte("65").unwrap(), 65);
+        assert_eq!(parse_byte(" 0 ").unwrap(), 0);
+        assert!(parse_byte("0xZZ").is_err());
+        assert!(parse_byte("300").is_err()); // > u8::MAX
     }
 
     #[test]

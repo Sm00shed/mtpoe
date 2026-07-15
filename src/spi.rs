@@ -65,6 +65,16 @@ fn dallas_crc8(data: &[u8]) -> u8 {
     crc.checksum(data)
 }
 
+/// Build the 10-byte TX frame for a command: [cmd, arg1, arg2, crc, 0…].
+fn build_frame(cmd: u8, arg1: u8, arg2: u8) -> [u8; FRAME_LEN] {
+    let mut tx = [0u8; FRAME_LEN];
+    tx[0] = cmd;
+    tx[1] = arg1;
+    tx[2] = arg2;
+    tx[3] = dallas_crc8(&tx[0..3]);
+    tx
+}
+
 /// Opened SPI device with initialized parameters
 pub struct SpiDevice {
     file: File,
@@ -117,10 +127,59 @@ impl SpiDevice {
         Ok(dev)
     }
 
+    /// Perform one full-duplex 10-byte transfer and return the raw RX frame.
+    fn transfer(&self, tx: &[u8; FRAME_LEN]) -> Result<[u8; FRAME_LEN], MtpoeError> {
+        let fd = self.file.as_raw_fd();
+        let mut rx = [0u8; FRAME_LEN];
+
+        let tr = SpiIocTransfer {
+            tx_buf: tx.as_ptr() as u64,
+            rx_buf: rx.as_mut_ptr() as u64,
+            len: FRAME_LEN as u32,
+            speed_hz: SPI_SPEED_HZ,
+            delay_usecs: INTERBYTE_DELAY_USEC,
+            bits_per_word: SPI_BITS,
+            cs_change: 0,
+            tx_nbits: 0,
+            rx_nbits: 0,
+            word_delay_usecs: WORD_DELAY_USEC,
+            pad: 0,
+        };
+
+        if self.verbose {
+            eprint!("tx: ");
+            for b in tx {
+                eprint!("{b:02X} ");
+            }
+            eprintln!();
+        }
+
+        let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
+
+        if self.verbose {
+            eprint!("rx: ");
+            for b in &rx {
+                eprint!("{b:02X} ");
+            }
+            eprintln!();
+        }
+
+        if ret < 1 {
+            return Err(MtpoeError::Spi("ioctl failed".into()));
+        }
+        if ret as usize != FRAME_LEN {
+            return Err(MtpoeError::Spi(format!(
+                "expected {FRAME_LEN} bytes, got {ret}"
+            )));
+        }
+
+        Ok(rx)
+    }
+
     /// Send a command and return the 2 payload bytes from the response.
     /// Retries up to MAX_RETRY times on CRC/framing errors.
     pub fn query(&self, cmd: u8, arg1: u8, arg2: u8) -> Result<[u8; 2], MtpoeError> {
-        let fd = self.file.as_raw_fd();
+        let tx = build_frame(cmd, arg1, arg2);
 
         for attempt in 0..=MAX_RETRY {
             if attempt > 0 {
@@ -128,62 +187,15 @@ impl SpiDevice {
                 std::thread::sleep(std::time::Duration::from_micros(delay));
             }
 
-            // Build TX frame: [cmd, arg1, arg2, crc, 0, 0, 0, 0, 0, 0]
-            let mut tx = [0u8; FRAME_LEN];
-            tx[0] = cmd;
-            tx[1] = arg1;
-            tx[2] = arg2;
-            tx[3] = dallas_crc8(&tx[0..3]);
-
-            let mut rx = [0u8; FRAME_LEN];
-
-            let tr = SpiIocTransfer {
-                tx_buf: tx.as_ptr() as u64,
-                rx_buf: rx.as_mut_ptr() as u64,
-                len: FRAME_LEN as u32,
-                speed_hz: SPI_SPEED_HZ,
-                delay_usecs: INTERBYTE_DELAY_USEC,
-                bits_per_word: SPI_BITS,
-                cs_change: 0,
-                tx_nbits: 0,
-                rx_nbits: 0,
-                word_delay_usecs: WORD_DELAY_USEC,
-                pad: 0,
+            let rx = match self.transfer(&tx) {
+                Ok(rx) => rx,
+                Err(e) => {
+                    if attempt < MAX_RETRY {
+                        continue;
+                    }
+                    return Err(e);
+                }
             };
-
-            if self.verbose {
-                eprint!("tx: ");
-                for b in &tx {
-                    eprint!("{b:02X} ");
-                }
-                eprintln!();
-            }
-
-            let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
-
-            if self.verbose {
-                eprint!("rx: ");
-                for b in &rx {
-                    eprint!("{b:02X} ");
-                }
-                eprintln!();
-            }
-
-            if ret < 1 {
-                if attempt < MAX_RETRY {
-                    continue;
-                }
-                return Err(MtpoeError::Spi("ioctl failed".into()));
-            }
-
-            if ret as usize != FRAME_LEN {
-                if attempt < MAX_RETRY {
-                    continue;
-                }
-                return Err(MtpoeError::Spi(format!(
-                    "expected {FRAME_LEN} bytes, got {ret}"
-                )));
-            }
 
             // Response layout: [pad x4] [tx_crc_echo] [cmd_echo] [data0] [data1] [rx_crc] [rx_crc]
             let resp = &rx[4..];
@@ -230,48 +242,36 @@ impl SpiDevice {
         Err(MtpoeError::Spi("max retries exceeded".into()))
     }
 
-    /// Send raw bytes and return the response. Used for debugging/raw_send.
-    pub fn raw_query(&self, tx_data: &[u8]) -> Result<Vec<u8>, MtpoeError> {
-        let fd = self.file.as_raw_fd();
-        let mut rx = vec![0u8; tx_data.len()];
+    /// Send a framed request (CRC computed automatically) and return the raw
+    /// (tx, rx) frames without interpreting or CRC-validating the response.
+    /// Intended for probing unknown registers; retries only on transport
+    /// (ioctl) failure, never on the content of the response.
+    pub fn probe(
+        &self,
+        cmd: u8,
+        arg1: u8,
+        arg2: u8,
+    ) -> Result<([u8; FRAME_LEN], [u8; FRAME_LEN]), MtpoeError> {
+        let tx = build_frame(cmd, arg1, arg2);
 
-        let tr = SpiIocTransfer {
-            tx_buf: tx_data.as_ptr() as u64,
-            rx_buf: rx.as_mut_ptr() as u64,
-            len: tx_data.len() as u32,
-            speed_hz: SPI_SPEED_HZ,
-            delay_usecs: INTERBYTE_DELAY_USEC,
-            bits_per_word: SPI_BITS,
-            cs_change: 0,
-            tx_nbits: 0,
-            rx_nbits: 0,
-            word_delay_usecs: WORD_DELAY_USEC,
-            pad: 0,
-        };
-
-        if self.verbose {
-            eprint!("tx: ");
-            for b in tx_data {
-                eprint!("{b:02X} ");
+        for attempt in 0..=MAX_RETRY {
+            if attempt > 0 {
+                let delay = INTERBYTE_DELAY_USEC as u64 * attempt as u64;
+                std::thread::sleep(std::time::Duration::from_micros(delay));
             }
-            eprintln!();
-        }
 
-        let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
-
-        if self.verbose {
-            eprint!("rx: ");
-            for b in &rx {
-                eprint!("{b:02X} ");
+            match self.transfer(&tx) {
+                Ok(rx) => return Ok((tx, rx)),
+                Err(e) => {
+                    if attempt < MAX_RETRY {
+                        continue;
+                    }
+                    return Err(e);
+                }
             }
-            eprintln!();
         }
 
-        if ret < 1 {
-            return Err(MtpoeError::Spi("raw ioctl failed".into()));
-        }
-
-        Ok(rx)
+        Err(MtpoeError::Spi("max retries exceeded".into()))
     }
 }
 
