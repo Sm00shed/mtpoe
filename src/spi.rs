@@ -8,6 +8,10 @@ const SPI_MODE: u8 = 0;
 const SPI_BITS: u8 = 8;
 const SPI_SPEED_HZ: u32 = 2_200_000;
 const INTERBYTE_DELAY_USEC: u16 = 150;
+/// Per-word delay of the spidev transfer (u8 field in the kernel ABI).
+/// Same 150 µs as INTERBYTE_DELAY_USEC, but a dedicated u8 constant so the
+/// value cannot be silently truncated by an `as u8` cast.
+const WORD_DELAY_USEC: u8 = 150;
 const FRAME_LEN: usize = 10;
 const MAX_RETRY: usize = 10;
 
@@ -50,7 +54,10 @@ nix::ioctl_write_ptr!(spi_ioc_wr_bits_per_word, b'k', 3, u8);
 nix::ioctl_read!(spi_ioc_rd_max_speed_hz, b'k', 4, u32);
 nix::ioctl_write_ptr!(spi_ioc_wr_max_speed_hz, b'k', 4, u32);
 
-// SPI_IOC_MESSAGE(1) — send 1 transfer
+// SPI_IOC_MESSAGE(1) — send 1 transfer.
+// _IOW('k', 0, struct spi_ioc_transfer): dir=write (0x40), size=0x20 (32 =
+// size_of::<SpiIocTransfer>()), type='k' (0x6b), nr=0. The explicit u64 buffer
+// fields keep the struct at 32 bytes on both 32- and 64-bit targets.
 const SPI_IOC_MESSAGE_1: u64 = 0x4020_6b00;
 
 /// Dallas/Maxim CRC-8 used by the ATtiny/SAMD20 protocol
@@ -137,7 +144,7 @@ impl SpiDevice {
                 cs_change: 0,
                 tx_nbits: 0,
                 rx_nbits: 0,
-                word_delay_usecs: INTERBYTE_DELAY_USEC as u8,
+                word_delay_usecs: WORD_DELAY_USEC,
                 pad: 0,
             };
 
@@ -223,7 +230,7 @@ impl SpiDevice {
             cs_change: 0,
             tx_nbits: 0,
             rx_nbits: 0,
-            word_delay_usecs: INTERBYTE_DELAY_USEC as u8,
+            word_delay_usecs: WORD_DELAY_USEC,
             pad: 0,
         };
 
