@@ -297,6 +297,7 @@ fn cmd_apply(ctx: &Context) -> Result<(), MtpoeError> {
     print_json(&LoadUciResult {
         status: "ok".into(),
         processed_ports: processed,
+        readback: current_raw.is_some(),
         poe_config: new_config,
     });
 

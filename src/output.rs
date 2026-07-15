@@ -76,6 +76,10 @@ pub struct SetPoeResult {
 pub struct LoadUciResult {
     pub status: String,
     pub processed_ports: usize,
+    /// Whether the current on-chip state could be read back before writing.
+    /// false on V4 (0x45 is not usable for 8 ports), where processed_ports
+    /// therefore counts every configured port rather than only the changed ones.
+    pub readback: bool,
     pub poe_config: Vec<PortConfig>,
 }
 
