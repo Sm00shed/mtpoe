@@ -81,7 +81,7 @@ impl SpiDevice {
             .map_err(|e| MtpoeError::Spi(format!("cannot open {path}: {e}")))?;
 
         let fd = file.as_raw_fd();
-        let mut dev = Self { file, proto, verbose };
+        let dev = Self { file, proto, verbose };
 
         // Initialize SPI parameters
         unsafe {
@@ -254,5 +254,17 @@ impl SpiDevice {
         }
 
         Ok(rx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dallas_crc8;
+
+    #[test]
+    fn crc8_matches_hardware_reference() {
+        // Hardware-verified reference values for the Dallas/Maxim CRC-8.
+        assert_eq!(dallas_crc8(&[0x47, 0xAA, 0x00]), 0x42);
+        assert_eq!(dallas_crc8(&[0x48, 0x01, 0x23]), 0x11);
     }
 }

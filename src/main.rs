@@ -157,23 +157,25 @@ fn read_voltage(ctx: &Context) -> Result<f32, MtpoeError> {
     Ok((v * 100.0).round() / 100.0)
 }
 
+/// V3/V4 temperature conversion: 12-count block formula (mtpoe_ctrl.c:126-142).
+fn temp_v3v4_celsius(x: u32) -> i32 {
+    let n = x / 12;
+    let o = x - n * 12;
+    let mut c = (n * 5) as i32 - 273;
+    if o > 9 { c += 4; }
+    else if o > 6 { c += 3; }
+    else if o > 4 { c += 2; }
+    else if o > 2 { c += 1; }
+    c
+}
+
 /// Read the controller temperature in degrees Celsius.
 fn read_temperature(ctx: &Context) -> Result<i32, MtpoeError> {
     let [hi, lo] = ctx.spi.query(POE_CMD_TEMPERAT, 0, 0)?;
     let x = (hi as u32) << 8 | lo as u32;
     let c = match ctx.proto {
         PoeProto::V2 => x as i32 - 273,
-        // V3 and V4 share the 12-count block formula (mtpoe_ctrl.c:126-142).
-        PoeProto::V3 | PoeProto::V4 => {
-            let n = x / 12;
-            let o = x - n * 12;
-            let mut c = (n * 5) as i32 - 273;
-            if o > 9 { c += 4; }
-            else if o > 6 { c += 3; }
-            else if o > 4 { c += 2; }
-            else if o > 2 { c += 1; }
-            c
-        }
+        PoeProto::V3 | PoeProto::V4 => temp_v3v4_celsius(x),
     };
     Ok(c)
 }
@@ -324,7 +326,7 @@ fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
 
 fn cmd_raw_send(ctx: &Context, hex: &str) -> Result<(), MtpoeError> {
     let mut tx_data = Vec::new();
-    let mut ptr = hex.as_str();
+    let mut ptr: &str = hex;
     loop {
         let trimmed = ptr.trim_start();
         if trimmed.is_empty() { break; }
@@ -447,5 +449,50 @@ fn main() {
     if let Err(e) = run() {
         print_error(-1, &e.to_string());
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hw_port_reverses_and_bounds_check() {
+        // Chassis labels map to the reversed hardware numbering.
+        assert_eq!(hw_port(8, 1).unwrap(), 8);
+        assert_eq!(hw_port(8, 8).unwrap(), 1);
+        assert_eq!(hw_port(4, 1).unwrap(), 4);
+        assert_eq!(hw_port(4, 4).unwrap(), 1);
+        // Out of range is rejected, no underflow.
+        assert!(hw_port(8, 0).is_err());
+        assert!(hw_port(8, 9).is_err());
+    }
+
+    #[test]
+    fn parse_poe_value_accepts_names_and_digits() {
+        assert_eq!(parse_poe_value("off").unwrap(), 0);
+        assert_eq!(parse_poe_value("on").unwrap(), 1);
+        assert_eq!(parse_poe_value("auto").unwrap(), 2);
+        assert_eq!(parse_poe_value("0").unwrap(), 0);
+        assert_eq!(parse_poe_value("2").unwrap(), 2);
+        assert!(parse_poe_value("bogus").is_err());
+    }
+
+    #[test]
+    fn temp_v3v4_matches_block_formula() {
+        assert_eq!(temp_v3v4_celsius(0), -273);
+        assert_eq!(temp_v3v4_celsius(12), -268); // n=1, o=0
+        assert_eq!(temp_v3v4_celsius(744), 37); // n=62, o=0
+        assert_eq!(temp_v3v4_celsius(743), 36); // n=61, o=11 -> +4
+        assert_eq!(temp_v3v4_celsius(6), -271); // n=0, o=6 -> +2
+    }
+
+    #[test]
+    fn poe_status_value_decodes_flags_and_current() {
+        assert!(matches!(poe_status_value(0x8001), PortStatusValue::State(s) if s == "auto"));
+        assert!(matches!(poe_status_value(0x800A), PortStatusValue::State(s) if s == "short"));
+        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State(s) if s == "on"));
+        assert!(matches!(poe_status_value(0x8000), PortStatusValue::State(s) if s == "off"));
+        assert!(matches!(poe_status_value(0x0061), PortStatusValue::Current(97)));
     }
 }
