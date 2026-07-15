@@ -63,7 +63,7 @@ pub struct PortDetail {
 #[serde(untagged)]
 pub enum PortStatusValue {
     Current(u32),  // active port — current in mA
-    State(String), // off / auto / short / on (force-on no load)
+    State(String), // off / auto / short / force (forced-on, no load)
 }
 
 #[derive(Serialize)]

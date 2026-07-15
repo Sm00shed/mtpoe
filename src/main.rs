@@ -64,7 +64,7 @@ enum Commands {
     Port {
         /// Port number (omit to list all ports)
         port: Option<usize>,
-        /// New mode: off | on | auto (omit to just show the port)
+        /// New mode: off | auto | force (omit to just show the port)
         mode: Option<String>,
     },
     /// Load and apply PoE config from UCI
@@ -109,10 +109,10 @@ struct Context {
 fn parse_poe_value(s: &str) -> Result<u8, MtpoeError> {
     match s {
         "off" | "0" => Ok(0),
-        "on" | "1" => Ok(1),
+        "force" | "1" => Ok(1),
         "auto" | "2" => Ok(2),
         _ => Err(MtpoeError::InvalidValue(format!(
-            "'{s}' — must be off/on/auto or 0/1/2"
+            "'{s}' — must be off/auto/force or 0/1/2"
         ))),
     }
 }
@@ -120,7 +120,7 @@ fn parse_poe_value(s: &str) -> Result<u8, MtpoeError> {
 fn poe_config_str(val: u8) -> String {
     match val {
         0 => "off".into(),
-        1 => "on".into(),
+        1 => "force".into(),
         2 => "auto".into(),
         _ => "n/a".into(),
     }
@@ -130,7 +130,7 @@ fn poe_status_value(raw: u16) -> PortStatusValue {
     match raw {
         0x8001 => PortStatusValue::State("auto".into()),
         0x800A => PortStatusValue::State("short".into()),
-        0x800F => PortStatusValue::State("on".into()),
+        0x800F => PortStatusValue::State("force".into()),
         v if v & 0x8000 != 0 => PortStatusValue::State("off".into()),
         v => PortStatusValue::Current(v as u32),
     }
@@ -582,10 +582,12 @@ mod tests {
     #[test]
     fn parse_poe_value_accepts_names_and_digits() {
         assert_eq!(parse_poe_value("off").unwrap(), 0);
-        assert_eq!(parse_poe_value("on").unwrap(), 1);
+        assert_eq!(parse_poe_value("force").unwrap(), 1);
         assert_eq!(parse_poe_value("auto").unwrap(), 2);
         assert_eq!(parse_poe_value("0").unwrap(), 0);
+        assert_eq!(parse_poe_value("1").unwrap(), 1);
         assert_eq!(parse_poe_value("2").unwrap(), 2);
+        assert!(parse_poe_value("on").is_err());
         assert!(parse_poe_value("bogus").is_err());
     }
 
@@ -602,7 +604,7 @@ mod tests {
     fn poe_status_value_decodes_flags_and_current() {
         assert!(matches!(poe_status_value(0x8001), PortStatusValue::State(s) if s == "auto"));
         assert!(matches!(poe_status_value(0x800A), PortStatusValue::State(s) if s == "short"));
-        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State(s) if s == "on"));
+        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State(s) if s == "force"));
         assert!(matches!(poe_status_value(0x8000), PortStatusValue::State(s) if s == "off"));
         assert!(matches!(
             poe_status_value(0x0061),
