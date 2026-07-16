@@ -15,12 +15,13 @@ PKG_MIRROR_HASH:=skip
 
 PKG_MAINTAINER:=Steffen (Sm00shed)
 PKG_LICENSE:=GPL-2.0
+PKG_LICENSE_FILES:=LICENSE
 
 PKG_BUILD_DEPENDS:=rust/host
 RUST_PKG_FEATURES:=
 
 include $(INCLUDE_DIR)/package.mk
-include $(INCLUDE_DIR)/rust-package.mk
+include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 
 define Package/mtpoe
   SECTION:=utils
@@ -36,15 +37,19 @@ define Package/mtpoe/description
   standard PSE-PD path does not provide. Written in Rust.
 endef
 
+define Package/mtpoe/conffiles
+/etc/config/mtpoe
+endef
+
 define Package/mtpoe/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/mtpoe $(1)/usr/sbin/mtpoe
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/mtpoe.init $(1)/etc/init.d/mtpoe
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) ./files/99_mtpoe.defaults $(1)/etc/uci-defaults/
+	$(INSTALL_DATA) ./files/mtpoe.defaults $(1)/etc/uci-defaults/99-mtpoe
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./files/mtpoe $(1)/etc/config/mtpoe
+	$(INSTALL_CONF) ./files/mtpoe.config $(1)/etc/config/mtpoe
 endef
 
 $(eval $(call BuildPackage,mtpoe))
