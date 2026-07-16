@@ -52,7 +52,7 @@ opkg install ./mtpoe_0.1.0-1_aarch64_cortex-a72.ipk
 ## What the package installs
 
 - `/usr/sbin/mtpoe` — the binary
-- `/etc/init.d/99_mtpoe` — service; runs `mtpoe apply` at boot (`START=11`)
+- `/etc/init.d/mtpoe` — service; runs `mtpoe apply` at boot (`START=11`)
 - `/etc/uci-defaults/99_mtpoe.defaults` — creates `/etc/config/mtpoe` on first
   boot (every port `auto`)
 - `/etc/config/mtpoe` — default UCI config
@@ -60,8 +60,8 @@ opkg install ./mtpoe_0.1.0-1_aarch64_cortex-a72.ipk
 Enable and start the service:
 
 ```
-/etc/init.d/99_mtpoe enable
-/etc/init.d/99_mtpoe start
+/etc/init.d/mtpoe enable
+/etc/init.d/mtpoe start
 ```
 
 ## Rebuilding after source changes

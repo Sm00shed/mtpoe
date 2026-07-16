@@ -40,7 +40,7 @@ define Package/mtpoe/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/mtpoe $(1)/usr/sbin/mtpoe
 	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/99_mtpoe $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/mtpoe.init $(1)/etc/init.d/mtpoe
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./files/99_mtpoe.defaults $(1)/etc/uci-defaults/
 	$(INSTALL_DIR) $(1)/etc/config
