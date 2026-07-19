@@ -154,7 +154,9 @@ impl SpiDevice {
             eprintln!();
         }
 
-        let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1, &tr as *const _) };
+        // ioctl request type differs by target: c_int (musl) vs c_ulong (glibc).
+        // `as _` coerces SPI_IOC_MESSAGE_1 to whichever the platform expects.
+        let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1 as _, &tr as *const _) };
 
         if self.verbose {
             eprint!("rx: ");
