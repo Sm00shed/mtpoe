@@ -20,9 +20,14 @@ use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
 #[derive(Parser)]
 #[command(
     name = "mtpoe",
-    about = "Control MikroTik PoE ports (incl. per-port force)"
+    about = "Control MikroTik PoE ports (incl. per-port force)",
+    disable_help_flag = true
 )]
 struct Cli {
+    /// Print help
+    #[arg(long, action = clap::ArgAction::Help)]
+    help: Option<bool>,
+
     /// SPI device path (auto-detected from board if not set)
     #[arg(long)]
     dev: Option<String>,
