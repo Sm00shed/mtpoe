@@ -29,24 +29,29 @@ cp -r openwrt/files "$DEST/files"
 cd <openwrt>
 make defconfig
 make menuconfig       # Utilities → <M> mtpoe
-# optional, for .apk output:
-#   Global build settings → Use APK instead of OPKG
 make package/mtpoe/compile V=s -j1
 ```
 
 ## 3. Locate the package
 
 ```
-find bin -name 'mtpoe_*'
-# e.g. bin/packages/aarch64_cortex-a72/base/mtpoe_0.1.0-1_aarch64_cortex-a72.apk
+find bin -name 'mtpoe-*.apk'
+# e.g. bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.0-r1.apk
 ```
 
 ## 4. Install on the router
 
+A locally built package is unsigned, so `--allow-untrusted` is required:
+
 ```
-apk add ./mtpoe_0.1.0-1_aarch64_cortex-a72.apk     # apk-based OpenWrt
-# or, on older opkg-based builds:
-opkg install ./mtpoe_0.1.0-1_aarch64_cortex-a72.ipk
+apk add --allow-untrusted ./mtpoe-0.1.0-r1.apk
+```
+
+OpenWrt has no `scp`; copy the file over an ssh pipe first:
+
+```
+cat bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.0-r1.apk | \
+    ssh root@192.168.1.1 'cat > /tmp/mtpoe.apk && apk add --allow-untrusted /tmp/mtpoe.apk'
 ```
 
 ## What the package installs
@@ -66,8 +71,10 @@ Enable and start the service:
 
 ## Rebuilding after source changes
 
-Push the new commit, then rebuild (the git checkout is cached):
+Push the new commit first. `clean` does **not** drop the downloaded source
+tarball, so purge the cache or the build reuses the old sources:
 
 ```
-make package/mtpoe/{clean,compile} V=s -j1
+rm -rf dl/mtpoe-*.tar.zst tmp/dl/mtpoe-* build_dir/*/mtpoe-*
+make package/mtpoe/compile V=s -j1
 ```
