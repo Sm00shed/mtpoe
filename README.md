@@ -15,14 +15,15 @@ Board, protocol and SPI device are auto-detected from `/tmp/sysinfo/board_name`
 
 ## Installation
 
-OpenWrt package `mtpoe` (requires `kmod-spi-dev`):
+Build the OpenWrt package yourself (see [BUILD.md](BUILD.md)) and install the
+resulting `.apk`. It is unsigned, so `--allow-untrusted` is required:
 
 ```
-apk add mtpoe
+apk add --allow-untrusted ./mtpoe-0.1.0-r1.apk
 ```
 
-On first boot a uci-defaults script creates `/etc/config/mtpoe` with every port
-set to `auto`.
+Requires `kmod-spi-dev` (pulled in as a dependency). On first boot a uci-defaults
+script creates `/etc/config/mtpoe` with every port set to `auto`.
 
 ## Commands
 
