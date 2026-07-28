@@ -138,7 +138,10 @@ pub fn emit<T: Serialize + Human>(value: &T, json: bool) {
 
 fn status_word(v: &PortStatusValue) -> String {
     match v {
-        PortStatusValue::State { name, code } => format!("{name} ({code})"),
+        PortStatusValue::State { name, code } if name == "unknown" => {
+            format!("unknown (0x{:04X})", 0x8000u16 | code)
+        }
+        PortStatusValue::State { name, .. } => name.clone(),
         PortStatusValue::Current(ma) => format!("{ma} mA"),
     }
 }
@@ -288,7 +291,7 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(list.human(), "  1  auto   97 mA\n  2  off    disabled (0)");
+        assert_eq!(list.human(), "  1  auto   97 mA\n  2  off    disabled");
     }
 
     #[test]
@@ -300,6 +303,6 @@ mod tests {
                 status: PortStatusValue::State { name: "searching".into(), code: 1 },
             }],
         };
-        assert_eq!(list.human(), "  1  searching (1)");
+        assert_eq!(list.human(), "  1  searching");
     }
 }
