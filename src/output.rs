@@ -62,8 +62,8 @@ pub struct PortDetail {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum PortStatusValue {
-    Current(u32),  // active port — current in mA
-    State(String), // off / auto / short / force (forced-on, no load)
+    Current(u32),                      // active port — current in mA
+    State { name: String, code: u16 }, // code = raw & 0x7fff; known: 0=disabled 1=searching 10=no-pd
 }
 
 #[derive(Serialize)]
@@ -138,7 +138,7 @@ pub fn emit<T: Serialize + Human>(value: &T, json: bool) {
 
 fn status_word(v: &PortStatusValue) -> String {
     match v {
-        PortStatusValue::State(s) => s.clone(),
+        PortStatusValue::State { name, code } => format!("{name} ({code})"),
         PortStatusValue::Current(ma) => format!("{ma} mA"),
     }
 }
@@ -192,7 +192,7 @@ impl Human for PortDetail {
     fn human(&self) -> String {
         let st = status_word(&self.status);
         match &self.config {
-            Some(c) => format!("port {}: {} ({})", self.port, st, c),
+            Some(c) => format!("port {}: {} [{}]", self.port, st, c),
             None => format!("port {}: {}", self.port, st),
         }
     }
@@ -284,11 +284,11 @@ mod tests {
                 },
                 PortStatus {
                     port: 2,
-                    status: PortStatusValue::State("off".into()),
+                    status: PortStatusValue::State { name: "disabled".into(), code: 0 },
                 },
             ],
         };
-        assert_eq!(list.human(), "  1  auto   97 mA\n  2  off    off");
+        assert_eq!(list.human(), "  1  auto   97 mA\n  2  off    disabled (0)");
     }
 
     #[test]
@@ -297,9 +297,9 @@ mod tests {
             poe_config: None,
             poe_status: vec![PortStatus {
                 port: 1,
-                status: PortStatusValue::State("auto".into()),
+                status: PortStatusValue::State { name: "searching".into(), code: 1 },
             }],
         };
-        assert_eq!(list.human(), "  1  auto");
+        assert_eq!(list.human(), "  1  searching (1)");
     }
 }

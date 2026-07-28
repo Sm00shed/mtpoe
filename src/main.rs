@@ -132,13 +132,17 @@ fn poe_config_str(val: u8) -> String {
 }
 
 fn poe_status_value(raw: u16) -> PortStatusValue {
-    match raw {
-        0x8001 => PortStatusValue::State("auto".into()),
-        0x800A => PortStatusValue::State("short".into()),
-        0x800F => PortStatusValue::State("force".into()),
-        v if v & 0x8000 != 0 => PortStatusValue::State("off".into()),
-        v => PortStatusValue::Current(v as u32),
+    if raw & 0x8000 == 0 {
+        return PortStatusValue::Current(raw as u32);
     }
+    let code = raw & 0x7fff;
+    let name = match code {
+        0x0000 => "disabled",
+        0x0001 => "searching",
+        0x000A => "no-pd",
+        _ => "unknown",
+    };
+    PortStatusValue::State { name: name.into(), code }
 }
 
 /// Translate a chassis port (1..=ports_num, as labelled and used by CLI/UCI/JSON)
@@ -412,7 +416,7 @@ fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
 
 /// Opcodes that can brick the controller (firmware flash / reset). Refused by
 /// `probe` unless --force-dangerous is given.
-const DANGEROUS_OPCODES: [u8; 3] = [0x72, 0xB1, 0x1E];
+const DANGEROUS_OPCODES: [u8; 4] = [0x72, 0xB1, 0x1E, 0x44];
 
 /// Parse a byte argument given as hex (0x41) or decimal.
 fn parse_byte(s: &str) -> Result<u8, MtpoeError> {
@@ -607,13 +611,11 @@ mod tests {
 
     #[test]
     fn poe_status_value_decodes_flags_and_current() {
-        assert!(matches!(poe_status_value(0x8001), PortStatusValue::State(s) if s == "auto"));
-        assert!(matches!(poe_status_value(0x800A), PortStatusValue::State(s) if s == "short"));
-        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State(s) if s == "force"));
-        assert!(matches!(poe_status_value(0x8000), PortStatusValue::State(s) if s == "off"));
-        assert!(matches!(
-            poe_status_value(0x0061),
-            PortStatusValue::Current(97)
-        ));
+        assert!(matches!(poe_status_value(0x8001), PortStatusValue::State { ref name, code: 1  } if name == "searching"));
+        assert!(matches!(poe_status_value(0x800A), PortStatusValue::State { ref name, code: 10 } if name == "no-pd"));
+        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State { ref name, code: 15 } if name == "unknown"));
+        assert!(matches!(poe_status_value(0x8000), PortStatusValue::State { ref name, code: 0  } if name == "disabled"));
+        assert!(matches!(poe_status_value(0x8005), PortStatusValue::State { ref name, code: 5  } if name == "unknown"));
+        assert!(matches!(poe_status_value(0x0061), PortStatusValue::Current(97)));
     }
 }
