@@ -11,7 +11,7 @@ use error::MtpoeError;
 use output::*;
 use spi::{
     PoeProto, SpiDevice, POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_ON_OFF, POE_CMD_PORT_STATE_BASE,
-    POE_CMD_STATE, POE_CMD_TEMPERAT,
+    POE_CMD_PORT_VOLT, POE_CMD_STATE, POE_CMD_TEMPERAT,
 };
 use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
 
@@ -263,15 +263,35 @@ fn get_poe_config(ctx: &Context) -> Result<Option<Vec<PortConfig>>, MtpoeError> 
     Ok(Some(configs))
 }
 
+fn read_port_voltage(ctx: &Context, user_port: usize) -> Result<f32, MtpoeError> {
+    let arg = (ctx.ports_num - user_port) as u8;
+    let [hi, lo] = ctx.spi.query(POE_CMD_PORT_VOLT, 0, arg)?;
+    let raw = (hi as u32) << 8 | lo as u32;
+    Ok((raw as f32 / 100.0 * 100.0).round() / 100.0)
+}
+
 fn get_poe_status(ctx: &Context) -> Result<Vec<PortStatus>, MtpoeError> {
     let mut statuses = Vec::with_capacity(ctx.ports_num);
     for i in 0..ctx.ports_num {
+        let user_port = i + 1;
         let cmd = POE_CMD_PORT_STATE_BASE + ctx.port_state_map[i];
         let [hi, lo] = ctx.spi.query(cmd, 0, 0)?;
         let raw = (hi as u16) << 8 | lo as u16;
+        let status = poe_status_value(raw);
+
+        let (voltage_v, power_w) = if let PortStatusValue::Current(ma) = status {
+            let v = read_port_voltage(ctx, user_port)?;
+            let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
+            (Some(v), Some(w))
+        } else {
+            (None, None)
+        };
+
         statuses.push(PortStatus {
-            port: i + 1,
-            status: poe_status_value(raw),
+            port: user_port,
+            status,
+            voltage_v,
+            power_w,
         });
     }
     Ok(statuses)
@@ -306,11 +326,22 @@ fn cmd_port_show_one(ctx: &Context, user_port: usize) -> Result<(), MtpoeError> 
         None => None,
     };
 
+    let status = poe_status_value(raw);
+    let (voltage_v, power_w) = if let PortStatusValue::Current(ma) = status {
+        let v = read_port_voltage(ctx, user_port)?;
+        let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
+        (Some(v), Some(w))
+    } else {
+        (None, None)
+    };
+
     emit(
         &PortDetail {
             port: user_port,
             config,
-            status: poe_status_value(raw),
+            status,
+            voltage_v,
+            power_w,
         },
         ctx.json,
     );

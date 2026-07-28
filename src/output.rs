@@ -48,6 +48,10 @@ pub struct PortConfig {
 pub struct PortStatus {
     pub port: usize,
     pub status: PortStatusValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voltage_v: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power_w: Option<f32>,
 }
 
 /// A single port's config (None on V4) and live status.
@@ -57,6 +61,10 @@ pub struct PortDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,
     pub status: PortStatusValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voltage_v: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power_w: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -146,6 +154,13 @@ fn status_word(v: &PortStatusValue) -> String {
     }
 }
 
+fn power_suffix(voltage_v: Option<f32>, power_w: Option<f32>) -> String {
+    match (voltage_v, power_w) {
+        (Some(v), Some(w)) => format!("  {:.2} V  {:.2} W", v, w),
+        _ => String::new(),
+    }
+}
+
 /// Render the indented per-port lines shared by `status` and `port`.
 fn render_ports(config: &Option<Vec<PortConfig>>, status: &[PortStatus]) -> String {
     let mut out = String::new();
@@ -153,14 +168,21 @@ fn render_ports(config: &Option<Vec<PortConfig>>, status: &[PortStatus]) -> Stri
         let cfg = config
             .as_ref()
             .and_then(|list| list.iter().find(|c| c.port == s.port));
+        let pwr = power_suffix(s.voltage_v, s.power_w);
         match cfg {
             Some(c) => out.push_str(&format!(
-                "  {}  {:<6} {}\n",
+                "  {}  {:<6} {}{}\n",
                 s.port,
                 c.config,
-                status_word(&s.status)
+                status_word(&s.status),
+                pwr
             )),
-            None => out.push_str(&format!("  {}  {}\n", s.port, status_word(&s.status))),
+            None => out.push_str(&format!(
+                "  {}  {}{}\n",
+                s.port,
+                status_word(&s.status),
+                pwr
+            )),
         }
     }
     out.truncate(out.trim_end().len());
@@ -194,9 +216,10 @@ impl Human for SetPoeResult {
 impl Human for PortDetail {
     fn human(&self) -> String {
         let st = status_word(&self.status);
+        let pwr = power_suffix(self.voltage_v, self.power_w);
         match &self.config {
-            Some(c) => format!("port {}: {} [{}]", self.port, st, c),
-            None => format!("port {}: {}", self.port, st),
+            Some(c) => format!("port {}: {}{} [{}]", self.port, st, pwr, c),
+            None => format!("port {}: {}{}", self.port, st, pwr),
         }
     }
 }
@@ -284,10 +307,14 @@ mod tests {
                 PortStatus {
                     port: 1,
                     status: PortStatusValue::Current(97),
+                    voltage_v: None,
+                    power_w: None,
                 },
                 PortStatus {
                     port: 2,
                     status: PortStatusValue::State { name: "disabled".into(), code: 0 },
+                    voltage_v: None,
+                    power_w: None,
                 },
             ],
         };
@@ -301,6 +328,8 @@ mod tests {
             poe_status: vec![PortStatus {
                 port: 1,
                 status: PortStatusValue::State { name: "searching".into(), code: 1 },
+                voltage_v: None,
+                power_w: None,
             }],
         };
         assert_eq!(list.human(), "  1  searching");
