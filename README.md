@@ -38,6 +38,14 @@ mtpoe probe <cmd> [b1] [b2] # read a raw SPI register (debug)
 mtpoe version
 ```
 
+Active (delivering) ports show current, per-port voltage and power:
+
+```
+  3  auto   83 mA  48.76 V  4.05 W
+  4  auto   82 mA  48.71 V  3.99 W
+  5  force  60 mA  48.97 V  2.94 W
+```
+
 Global options: `--json` (machine-readable instead of text), `--dev`,
 `--uci-key`, `--proto`, `--board`, `--verbose`.
 
