@@ -19,7 +19,7 @@ Build the OpenWrt package yourself (see [BUILD.md](BUILD.md)) and install the
 resulting `.apk`. It is unsigned, so `--allow-untrusted` is required:
 
 ```
-apk add --allow-untrusted ./mtpoe-0.1.0-r1.apk
+apk add --allow-untrusted ./mtpoe-0.1.1.apk
 ```
 
 Requires `kmod-spi-dev` (pulled in as a dependency). On first boot a uci-defaults

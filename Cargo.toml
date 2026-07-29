@@ -1,6 +1,6 @@
 [package]
 name = "mtpoe"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Per-port PoE control for MikroTik RB5009 — force/passive modes beyond 802.3af/at"
 license = "GPL-2.0"
