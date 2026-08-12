@@ -136,13 +136,16 @@ fn poe_status_value(raw: u16) -> PortStatusValue {
         return PortStatusValue::Current(raw as u32);
     }
     let code = raw & 0x7fff;
-    let name = match code {
-        0x0000 => "disabled",
-        0x0001 => "searching",
-        0x000A => "no-pd",
-        _ => "unknown",
+    let (name, verified) = match code {
+        0x0000 => ("disabled",      true),
+        0x0001 => ("searching",     true),
+        0x000A => ("no-pd",         true),
+        0x000F => ("force-no-load", false), // prudy: force-on, no load — untested
+        0x0012 => ("off",           false), // prudy: separate off code — untested
+        0x0018 => ("off-ext-power", false), // prudy: PoE-IN port, router powered externally — untested
+        _      => ("unknown",       true),
     };
-    PortStatusValue::State { name: name.into(), code }
+    PortStatusValue::State { name: name.into(), code, verified }
 }
 
 /// Translate a chassis port (1..=ports_num, as labelled and used by CLI/UCI/JSON)
@@ -642,11 +645,13 @@ mod tests {
 
     #[test]
     fn poe_status_value_decodes_flags_and_current() {
-        assert!(matches!(poe_status_value(0x8001), PortStatusValue::State { ref name, code: 1  } if name == "searching"));
-        assert!(matches!(poe_status_value(0x800A), PortStatusValue::State { ref name, code: 10 } if name == "no-pd"));
-        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State { ref name, code: 15 } if name == "unknown"));
-        assert!(matches!(poe_status_value(0x8000), PortStatusValue::State { ref name, code: 0  } if name == "disabled"));
-        assert!(matches!(poe_status_value(0x8005), PortStatusValue::State { ref name, code: 5  } if name == "unknown"));
+        assert!(matches!(poe_status_value(0x8001), PortStatusValue::State { ref name, code: 1,  verified: true  } if name == "searching"));
+        assert!(matches!(poe_status_value(0x800A), PortStatusValue::State { ref name, code: 10, verified: true  } if name == "no-pd"));
+        assert!(matches!(poe_status_value(0x800F), PortStatusValue::State { ref name, code: 15, verified: false } if name == "force-no-load"));
+        assert!(matches!(poe_status_value(0x8012), PortStatusValue::State { ref name, code: 18, verified: false } if name == "off"));
+        assert!(matches!(poe_status_value(0x8018), PortStatusValue::State { ref name, code: 24, verified: false } if name == "off-ext-power"));
+        assert!(matches!(poe_status_value(0x8000), PortStatusValue::State { ref name, code: 0,  verified: true  } if name == "disabled"));
+        assert!(matches!(poe_status_value(0x8005), PortStatusValue::State { ref name, code: 5,  verified: true  } if name == "unknown"));
         assert!(matches!(poe_status_value(0x0061), PortStatusValue::Current(97)));
     }
 }

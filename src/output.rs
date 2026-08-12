@@ -67,11 +67,19 @@ pub struct PortDetail {
     pub power_w: Option<f32>,
 }
 
+fn is_true(b: &bool) -> bool { *b }
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum PortStatusValue {
-    Current(u32),                      // active port — current in mA
-    State { name: String, code: u16 }, // code = raw & 0x7fff; known: 0=disabled 1=searching 10=no-pd
+    Current(u32), // active port — current in mA
+    State {
+        name: String,
+        code: u16,
+        // omitted from JSON when true; present as false for unverified codes
+        #[serde(skip_serializing_if = "is_true")]
+        verified: bool,
+    },
 }
 
 #[derive(Serialize)]
@@ -146,9 +154,10 @@ pub fn emit<T: Serialize + Human>(value: &T, json: bool) {
 
 fn status_word(v: &PortStatusValue) -> String {
     match v {
-        PortStatusValue::State { name, code } if name == "unknown" => {
+        PortStatusValue::State { name, code, .. } if name == "unknown" => {
             format!("unknown (0x{:04X})", 0x8000u16 | code)
         }
+        PortStatusValue::State { name, verified: false, .. } => format!("{name} (untested)"),
         PortStatusValue::State { name, .. } => name.clone(),
         PortStatusValue::Current(ma) => format!("{ma} mA"),
     }
@@ -312,7 +321,7 @@ mod tests {
                 },
                 PortStatus {
                     port: 2,
-                    status: PortStatusValue::State { name: "disabled".into(), code: 0 },
+                    status: PortStatusValue::State { name: "disabled".into(), code: 0, verified: true },
                     voltage_v: None,
                     power_w: None,
                 },
@@ -327,7 +336,7 @@ mod tests {
             poe_config: None,
             poe_status: vec![PortStatus {
                 port: 1,
-                status: PortStatusValue::State { name: "searching".into(), code: 1 },
+                status: PortStatusValue::State { name: "searching".into(), code: 1, verified: true },
                 voltage_v: None,
                 power_w: None,
             }],
