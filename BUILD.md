@@ -56,16 +56,11 @@ cat bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.2-r1.apk | \
 
 - `/usr/sbin/mtpoe` — the binary
 - `/etc/init.d/mtpoe` — service; runs `mtpoe apply` at boot (`START=11`)
-- `/etc/uci-defaults/99-mtpoe` — creates `/etc/config/mtpoe` on first boot
-  (every port `auto`)
-- `/etc/config/mtpoe` — default UCI config
+- `/etc/uci-defaults/99-mtpoe` — runs `mtpoe setup` on first boot, seeding
+  `/etc/config/mtpoe` (every port `auto`)
+- `/etc/config/mtpoe` — shipped empty, seeded on first boot
 
-Enable and start the service:
-
-```
-/etc/init.d/mtpoe enable
-/etc/init.d/mtpoe start
-```
+Enabled and started automatically on install.
 
 ## Rebuilding after source changes
 
