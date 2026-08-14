@@ -13,7 +13,7 @@ use spi::{
     PoeProto, SpiDevice, POE_CMD_FW_VER, POE_CMD_INP_VOLT, POE_CMD_ON_OFF, POE_CMD_PORT_STATE_BASE,
     POE_CMD_PORT_VOLT, POE_CMD_STATE, POE_CMD_TEMPERAT,
 };
-use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
+use uci::{load_poe_from_uci, write_default_config, DEFAULT_UCI_SECTION};
 
 // ── CLI definition ────────────────────────────────────────────────────────────
 
@@ -21,11 +21,12 @@ use uci::{load_poe_from_uci, DEFAULT_UCI_SECTION};
 #[command(
     name = "mtpoe",
     about = "Control MikroTik PoE ports (incl. per-port force)",
-    disable_help_flag = true
+    disable_help_flag = true,
+    disable_help_subcommand = true
 )]
 struct Cli {
     /// Print help
-    #[arg(long, action = clap::ArgAction::Help)]
+    #[arg(short = 'h', action = clap::ArgAction::HelpShort)]
     help: Option<bool>,
 
     /// SPI device path (auto-detected from board if not set)
@@ -40,7 +41,7 @@ struct Cli {
     #[arg(long)]
     proto: Option<u8>,
 
-    /// Board index (auto-detected if not set)
+    /// Board index, 0-based (auto-detected if not set)
     #[arg(long)]
     board: Option<usize>,
 
@@ -48,7 +49,7 @@ struct Cli {
     #[arg(long)]
     verbose: bool,
 
-    /// Machine-readable JSON output (default is human-readable text)
+    /// Machine-readable JSON output (default is plain text)
     #[arg(long)]
     json: bool,
 
@@ -74,6 +75,8 @@ enum Commands {
     },
     /// Load and apply PoE config from UCI
     Apply,
+    /// Seed /etc/config/mtpoe with the board's default port config (all auto)
+    Setup,
     /// Show this program's version
     Version,
     /// Probe a raw SPI register: send cmd/b1/b2 (framed with CRC) and print
@@ -235,7 +238,7 @@ fn cmd_temperature(ctx: &Context) -> Result<(), MtpoeError> {
 
 fn get_poe_config(ctx: &Context) -> Result<Option<Vec<PortConfig>>, MtpoeError> {
     if ctx.proto == PoeProto::V4 {
-        // TODO: implement V4 port config (SAMD20 does not use POE_CMD_STATE the same way)
+        // V4 config readback not found yet
         return Ok(None);
     }
 
@@ -267,10 +270,17 @@ fn get_poe_config(ctx: &Context) -> Result<Option<Vec<PortConfig>>, MtpoeError> 
 }
 
 fn read_port_voltage(ctx: &Context, user_port: usize) -> Result<f32, MtpoeError> {
+    if user_port < 1 || user_port > ctx.ports_num {
+        return Err(MtpoeError::InvalidPort(format!(
+            "{user_port} — must be 1..{}",
+            ctx.ports_num
+        )));
+    }
+    // 0x4A wants a 0-based reversed index in arg2, not arg1 like 0x44/hw_port.
     let arg = (ctx.ports_num - user_port) as u8;
     let [hi, lo] = ctx.spi.query(POE_CMD_PORT_VOLT, 0, arg)?;
     let raw = (hi as u32) << 8 | lo as u32;
-    Ok((raw as f32 / 100.0 * 100.0).round() / 100.0)
+    Ok(raw as f32 / 100.0)
 }
 
 fn get_poe_status(ctx: &Context) -> Result<Vec<PortStatus>, MtpoeError> {
@@ -282,12 +292,13 @@ fn get_poe_status(ctx: &Context) -> Result<Vec<PortStatus>, MtpoeError> {
         let raw = (hi as u16) << 8 | lo as u16;
         let status = poe_status_value(raw);
 
-        let (voltage_v, power_w) = if let PortStatusValue::Current(ma) = status {
-            let v = read_port_voltage(ctx, user_port)?;
-            let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
-            (Some(v), Some(w))
-        } else {
-            (None, None)
+        let (voltage_v, power_w) = match status {
+            PortStatusValue::Current(ma) if ctx.proto == PoeProto::V4 => {
+                let v = read_port_voltage(ctx, user_port)?;
+                let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
+                (Some(v), Some(w))
+            }
+            _ => (None, None),
         };
 
         statuses.push(PortStatus {
@@ -330,12 +341,13 @@ fn cmd_port_show_one(ctx: &Context, user_port: usize) -> Result<(), MtpoeError> 
     };
 
     let status = poe_status_value(raw);
-    let (voltage_v, power_w) = if let PortStatusValue::Current(ma) = status {
-        let v = read_port_voltage(ctx, user_port)?;
-        let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
-        (Some(v), Some(w))
-    } else {
-        (None, None)
+    let (voltage_v, power_w) = match status {
+        PortStatusValue::Current(ma) if ctx.proto == PoeProto::V4 => {
+            let v = read_port_voltage(ctx, user_port)?;
+            let w = (ma as f32 * v / 1000.0 * 100.0).round() / 100.0;
+            (Some(v), Some(w))
+        }
+        _ => (None, None),
     };
 
     emit(
@@ -366,6 +378,8 @@ fn cmd_poe_set(ctx: &Context, user_port: usize, val: u8) -> Result<(), MtpoeErro
 
     emit(
         &SetPoeResult {
+            port: user_port,
+            mode: poe_config_str(val),
             status: "ok".into(),
         },
         ctx.json,
@@ -448,9 +462,10 @@ fn cmd_status(ctx: &Context) -> Result<(), MtpoeError> {
     Ok(())
 }
 
-/// Opcodes that can brick the controller (firmware flash / reset). Refused by
-/// `probe` unless --force-dangerous is given.
-const DANGEROUS_OPCODES: [u8; 4] = [0x72, 0xB1, 0x1E, 0x44];
+/// Opcodes that can brick the controller: firmware flash, reset, and two
+/// unknown ones observed to wedge the chip. Refused by `probe` without
+/// --force-dangerous.
+const DANGEROUS_OPCODES: [u8; 6] = [0x72, 0xB1, 0x1E, 0x44, 0x71, 0x78];
 
 /// Parse a byte argument given as hex (0x41) or decimal.
 fn parse_byte(s: &str) -> Result<u8, MtpoeError> {
@@ -504,11 +519,24 @@ fn execute(cli: &Cli) -> Result<(), MtpoeError> {
     // Board detection
     let board = if let Some(idx) = cli.board {
         POE_BOARDS
-            .get(idx.saturating_sub(1))
+            .get(idx)
             .ok_or_else(|| MtpoeError::BoardDetection(format!("board index {idx} out of range")))?
     } else {
         detect_board()?
     };
+
+    // setup only needs the board + uci, no SPI hardware
+    if matches!(cli.command, Commands::Setup) {
+        let written = write_default_config(&cli.uci_key, board.ports_num)?;
+        emit(
+            &SetupResult {
+                ports: written,
+                status: if written == 0 { "unchanged" } else { "created" }.into(),
+            },
+            cli.json,
+        );
+        return Ok(());
+    }
 
     let proto = match cli.proto {
         Some(2) => PoeProto::V2,
@@ -554,6 +582,7 @@ fn execute(cli: &Cli) -> Result<(), MtpoeError> {
             cmd_poe_set(&ctx, *p, val)
         }
         Commands::Apply => cmd_apply(&ctx),
+        Commands::Setup => unreachable!(),
         Commands::Version => {
             emit(
                 &ToolVersion {
