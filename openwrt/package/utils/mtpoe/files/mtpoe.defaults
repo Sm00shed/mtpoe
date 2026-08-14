@@ -1,0 +1,4 @@
+#!/bin/sh
+
+mtpoe setup
+exit 0
