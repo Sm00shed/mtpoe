@@ -94,6 +94,14 @@ pub struct FullStatus {
 
 #[derive(Serialize)]
 pub struct SetPoeResult {
+    pub port: usize,
+    pub mode: String,
+    pub status: String,
+}
+
+#[derive(Serialize)]
+pub struct SetupResult {
+    pub ports: usize,
     pub status: String,
 }
 
@@ -136,19 +144,19 @@ pub struct ToolVersion {
     pub version: String,
 }
 
-// ── Human-readable rendering ──────────────────────────────────────────────────
+// ── Pretty (terminal) rendering ─────────────────────────────────────────────
 
-/// Types that can render themselves as a compact human-readable line/block.
-pub trait Human {
-    fn human(&self) -> String;
+/// Types that can render themselves as a compact pretty-readable line/block.
+pub trait Pretty {
+    fn pretty(&self) -> String;
 }
 
-/// Print `value` as JSON (machine mode) or as human-readable text (default).
-pub fn emit<T: Serialize + Human>(value: &T, json: bool) {
+/// Print `value` as JSON (machine mode) or as pretty-readable text (default).
+pub fn emit<T: Serialize + Pretty>(value: &T, json: bool) {
     if json {
         print_json(value);
     } else {
-        println!("{}", value.human());
+        println!("{}", value.pretty());
     }
 }
 
@@ -198,32 +206,41 @@ fn render_ports(config: &Option<Vec<PortConfig>>, status: &[PortStatus]) -> Stri
     out
 }
 
-impl Human for FwVersion {
-    fn human(&self) -> String {
+impl Pretty for FwVersion {
+    fn pretty(&self) -> String {
         format!("firmware: {}", self.fw_version)
     }
 }
 
-impl Human for Voltage {
-    fn human(&self) -> String {
+impl Pretty for Voltage {
+    fn pretty(&self) -> String {
         format!("voltage: {:.2} V", self.voltage_v)
     }
 }
 
-impl Human for Temperature {
-    fn human(&self) -> String {
+impl Pretty for Temperature {
+    fn pretty(&self) -> String {
         format!("temperature: {} °C", self.temperature_c)
     }
 }
 
-impl Human for SetPoeResult {
-    fn human(&self) -> String {
-        self.status.clone()
+impl Pretty for SetPoeResult {
+    fn pretty(&self) -> String {
+        format!("port {} → {}", self.port, self.mode)
     }
 }
 
-impl Human for PortDetail {
-    fn human(&self) -> String {
+impl Pretty for SetupResult {
+    fn pretty(&self) -> String {
+        match self.ports {
+            0 => "already configured".into(),
+            n => format!("configured {n} ports (auto)"),
+        }
+    }
+}
+
+impl Pretty for PortDetail {
+    fn pretty(&self) -> String {
         let st = status_word(&self.status);
         let pwr = power_suffix(self.voltage_v, self.power_w);
         match &self.config {
@@ -233,14 +250,14 @@ impl Human for PortDetail {
     }
 }
 
-impl Human for PortList {
-    fn human(&self) -> String {
+impl Pretty for PortList {
+    fn pretty(&self) -> String {
         render_ports(&self.poe_config, &self.poe_status)
     }
 }
 
-impl Human for FullStatus {
-    fn human(&self) -> String {
+impl Pretty for FullStatus {
+    fn pretty(&self) -> String {
         let mut s = String::new();
         s.push_str(&format!("{:<13}{}\n", "firmware:", self.fw_version));
         s.push_str(&format!("{:<13}{:.2} V\n", "voltage:", self.voltage_v));
@@ -254,8 +271,8 @@ impl Human for FullStatus {
     }
 }
 
-impl Human for LoadUciResult {
-    fn human(&self) -> String {
+impl Pretty for LoadUciResult {
+    fn pretty(&self) -> String {
         format!(
             "applied {} port(s) (readback: {})",
             self.processed_ports,
@@ -264,8 +281,8 @@ impl Human for LoadUciResult {
     }
 }
 
-impl Human for ProbeResult {
-    fn human(&self) -> String {
+impl Pretty for ProbeResult {
+    fn pretty(&self) -> String {
         format!(
             "cmd {} b1 {} b2 {}\ntx {}\nrx {}\ndata {} ({})",
             self.cmd, self.b1, self.b2, self.tx, self.rx, self.data_hex, self.data_dec
@@ -273,8 +290,8 @@ impl Human for ProbeResult {
     }
 }
 
-impl Human for ToolVersion {
-    fn human(&self) -> String {
+impl Pretty for ToolVersion {
+    fn pretty(&self) -> String {
         format!("mtpoe {}", self.version)
     }
 }
@@ -284,23 +301,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn human_single_values() {
+    fn pretty_single_values() {
         assert_eq!(
             FwVersion {
                 fw_version: "65.21".into()
             }
-            .human(),
+            .pretty(),
             "firmware: 65.21"
         );
         assert_eq!(
-            Temperature { temperature_c: 31 }.human(),
+            Temperature { temperature_c: 31 }.pretty(),
             "temperature: 31 °C"
         );
-        assert_eq!(Voltage { voltage_v: 50.1 }.human(), "voltage: 50.10 V");
+        assert_eq!(Voltage { voltage_v: 50.1 }.pretty(), "voltage: 50.10 V");
     }
 
     #[test]
-    fn human_port_list_with_config() {
+    fn pretty_port_list_with_config() {
         let list = PortList {
             poe_config: Some(vec![
                 PortConfig {
@@ -327,11 +344,11 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(list.human(), "  1  auto   97 mA\n  2  off    disabled");
+        assert_eq!(list.pretty(), "  1  auto   97 mA\n  2  off    disabled");
     }
 
     #[test]
-    fn human_port_list_without_config() {
+    fn pretty_port_list_without_config() {
         let list = PortList {
             poe_config: None,
             poe_status: vec![PortStatus {
@@ -341,6 +358,6 @@ mod tests {
                 power_w: None,
             }],
         };
-        assert_eq!(list.human(), "  1  searching");
+        assert_eq!(list.pretty(), "  1  searching");
     }
 }
