@@ -23,6 +23,7 @@ pub enum MtpoeError {
     #[error("invalid value: {0}")]
     InvalidValue(String),
 
+    // Reserved for the kernel-PSE unbind/bind path (sysfs writes).
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
