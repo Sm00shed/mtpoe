@@ -1,5 +1,6 @@
 use crate::error::MtpoeError;
 use crc::{Crc, CRC_8_MAXIM_DOW};
+use nix::fcntl::{Flock, FlockArg};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
 
@@ -78,7 +79,7 @@ fn build_frame(cmd: u8, arg1: u8, arg2: u8) -> [u8; FRAME_LEN] {
 
 /// Opened SPI device with initialized parameters
 pub struct SpiDevice {
-    file: File,
+    file: Flock<File>,
     proto: PoeProto,
     verbose: bool,
 }
@@ -90,6 +91,10 @@ impl SpiDevice {
             .write(true)
             .open(path)
             .map_err(|e| MtpoeError::Spi(format!("cannot open {path}: {e}")))?;
+
+        // Exclusive lock: serialize concurrent mtpoe processes on the bus.
+        let file = Flock::lock(file, FlockArg::LockExclusive)
+            .map_err(|(_, e)| MtpoeError::Spi(format!("cannot lock {path}: {e}")))?;
 
         let fd = file.as_raw_fd();
         let dev = Self {
@@ -158,6 +163,7 @@ impl SpiDevice {
         // ioctl request type differs by target: c_int (musl) vs c_ulong (glibc).
         // `as _` coerces SPI_IOC_MESSAGE_1 to whichever the platform expects.
         let ret = unsafe { libc::ioctl(fd, SPI_IOC_MESSAGE_1 as _, &tr as *const _) };
+        let os_err = std::io::Error::last_os_error();
 
         if self.verbose {
             eprint!("rx: ");
@@ -168,7 +174,7 @@ impl SpiDevice {
         }
 
         if ret < 1 {
-            return Err(MtpoeError::Spi("ioctl failed".into()));
+            return Err(MtpoeError::Spi(format!("ioctl failed: {os_err}")));
         }
         if ret as usize != FRAME_LEN {
             return Err(MtpoeError::Spi(format!(
