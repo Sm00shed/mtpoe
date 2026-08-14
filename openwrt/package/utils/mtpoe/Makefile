@@ -1,11 +1,11 @@
 #
-# Copyright (C) 2018 adron@yapic.net
+# Copyright (C) 2026 Steffen May
 #
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mtpoe
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.1.2
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
@@ -26,7 +26,7 @@ include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 define Package/mtpoe
   SECTION:=utils
   CATEGORY:=Utilities
-  DEPENDS:=+kmod-spi-dev
+  DEPENDS:=+kmod-spi-dev $(RUST_ARCH_DEPENDS)
   TITLE:=Per-port PoE control for MikroTik RB5009 and ATtiny/SAMD20 boards
   URL:=$(PKG_SOURCE_URL)
 endef
@@ -47,7 +47,7 @@ define Package/mtpoe/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/mtpoe.init $(1)/etc/init.d/mtpoe
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_DATA) ./files/mtpoe.defaults $(1)/etc/uci-defaults/99-mtpoe
+	$(INSTALL_BIN) ./files/mtpoe.defaults $(1)/etc/uci-defaults/99-mtpoe
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/mtpoe.config $(1)/etc/config/mtpoe
 endef
