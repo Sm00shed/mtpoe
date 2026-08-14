@@ -6,7 +6,7 @@ pub const BOARD_NAME_FILE: &str = "/tmp/sysinfo/board_name";
 
 #[derive(Debug, Clone)]
 pub struct PoeBoard {
-    /// Space-separated list of board names from /tmp/sysinfo/board_name
+    /// Board names (from /tmp/sysinfo/board_name) this entry matches
     pub names: &'static [&'static str],
     pub proto: PoeProto,
     pub spidev: &'static str,
