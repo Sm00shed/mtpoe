@@ -12,15 +12,13 @@ your changes first** — the build clones `HEAD`.
 
 ## 1. Add the package to the buildroot
 
-The Makefile and its runtime files live under `openwrt/` in this repo. Copy them
-into your OpenWrt tree so the Makefile and its `files/` directory sit **together**
-(the Makefile references `./files/…`):
+The package lives under `openwrt/package/utils/mtpoe/` in this repo, with the
+Makefile and its `files/` directory together (the Makefile references
+`./files/…`). Copy that directory into your OpenWrt tree, or point a feed at
+`openwrt/package`:
 
 ```
-DEST=<openwrt>/package/utils/mtpoe
-mkdir -p "$DEST"
-cp openwrt/package/utils/mtpoe/Makefile "$DEST/"
-cp -r openwrt/files "$DEST/files"
+cp -r openwrt/package/utils/mtpoe <openwrt>/package/utils/mtpoe
 ```
 
 ## 2. Select and build
@@ -36,7 +34,7 @@ make package/mtpoe/compile V=s -j1
 
 ```
 find bin -name 'mtpoe-*.apk'
-# e.g. bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.0-r1.apk
+# e.g. bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.2-r1.apk
 ```
 
 ## 4. Install on the router
@@ -44,13 +42,13 @@ find bin -name 'mtpoe-*.apk'
 A locally built package is unsigned, so `--allow-untrusted` is required:
 
 ```
-apk add --allow-untrusted ./mtpoe-0.1.0-r1.apk
+apk add --allow-untrusted ./mtpoe-0.1.2-r1.apk
 ```
 
 OpenWrt has no `scp`; copy the file over an ssh pipe first:
 
 ```
-cat bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.0-r1.apk | \
+cat bin/packages/aarch64_cortex-a72/base/mtpoe-0.1.2-r1.apk | \
     ssh root@192.168.1.1 'cat > /tmp/mtpoe.apk && apk add --allow-untrusted /tmp/mtpoe.apk'
 ```
 

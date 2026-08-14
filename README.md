@@ -34,6 +34,7 @@ mtpoe port                  # all ports and their state
 mtpoe port <N>              # a single port (1-based)
 mtpoe port <N> <mode>       # set a port
 mtpoe apply                 # apply the configuration from UCI
+mtpoe setup                 # seed UCI with the board's default ports (all auto)
 mtpoe probe <cmd> [b1] [b2] # read a raw SPI register (debug)
 mtpoe version
 ```
@@ -76,9 +77,12 @@ the controller (only changed ports, where the current state can be read back).
 
 ## Notes
 
-- **V4 (RB5009):** the admin state of all 8 ports cannot be read back (register
-  `0x45` only covers 4 ports), so `poe_config` is `null` on V4 and `apply` writes
-  every port. Live per-port status and current work normally.
+- **V2/V3:** the port mode is read back from the controller (register `0x45`),
+  so `poe_config` reflects the live setting and `apply` skips unchanged ports.
+- **V4 (RB5009):** the mode cannot be read back yet (no such command found), so
+  `poe_config` is `null` on V4, `apply` rewrites every port, and the chip state
+  cannot be verified against `/etc/config/mtpoe`. Live per-port status
+  (current/voltage) is still queried individually.
 - **Persistence:** the controller stores port states across reboots and power
   loss — ports are active **before** the OS starts. With `force` this means power
   is applied before OpenWrt is running.
