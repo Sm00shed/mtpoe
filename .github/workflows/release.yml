@@ -22,7 +22,7 @@ jobs:
       - name: Build APK
         uses: openwrt/gh-action-sdk@v7
         env:
-          ARCH: aarch64_cortex-a72-24.10
+          ARCH: aarch64_cortex-a72-SNAPSHOT
           FEEDNAME: mtpoe
           PACKAGES: mtpoe
           NO_REFRESH_CHECK: true
