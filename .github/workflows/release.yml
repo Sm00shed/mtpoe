@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set package version
+        run: |
+          HASH=$(git rev-parse HEAD)
+          sed -i "s/PKG_SOURCE_VERSION:=HEAD/PKG_SOURCE_VERSION:=$HASH/" openwrt/package/utils/mtpoe/Makefile
+
       - name: Expose package at feed root
         run: mkdir -p utils && ln -s ${{ github.workspace }}/openwrt/package/utils/mtpoe utils/mtpoe
 
