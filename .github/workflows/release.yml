@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Expose package at feed root
+        run: mkdir -p utils && ln -s ${{ github.workspace }}/openwrt/package/utils/mtpoe utils/mtpoe
+
+      - name: Build APK
+        uses: openwrt/gh-action-sdk@v7
+        env:
+          ARCH: aarch64_cortex-a72-25.05
+          FEEDNAME: mtpoe
+          PACKAGES: mtpoe
+          NO_REFRESH_CHECK: true
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/packages/aarch64_cortex-a72/mtpoe/mtpoe-*.apk
