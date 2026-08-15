@@ -16,8 +16,15 @@ jobs:
           set -e
           HASH=$(git rev-parse HEAD)
           VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
-          MIRROR_HASH=$(git archive --format=tar --prefix="mtpoe-${VERSION}/" "$HASH" | \
+          TAR_TIMESTAMP=$(git log -1 --no-show-signature --format='@%ct' "$HASH")
+          TMPDIR=$(mktemp -d)
+          mkdir -p "${TMPDIR}/mtpoe-${VERSION}"
+          git archive --format=tar "$HASH" | tar -x -C "${TMPDIR}/mtpoe-${VERSION}"
+          MIRROR_HASH=$(tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
+              --mtime="${TAR_TIMESTAMP}" \
+              -C "${TMPDIR}" -c "mtpoe-${VERSION}" | \
               zstd -T0 --ultra -20 -c | sha256sum | cut -d' ' -f1)
+          rm -rf "${TMPDIR}"
           sed -i \
             -e "s/PKG_SOURCE_VERSION:=HEAD/PKG_SOURCE_VERSION:=$HASH/" \
             -e "s/PKG_MIRROR_HASH:=skip/PKG_MIRROR_HASH:=$MIRROR_HASH/" \
