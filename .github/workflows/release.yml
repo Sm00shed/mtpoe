@@ -13,9 +13,11 @@ jobs:
 
       - name: Set package version and hash
         run: |
+          set -e
           HASH=$(git rev-parse HEAD)
           VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
-          MIRROR_HASH=$(git archive --format=tar --prefix="mtpoe-${VERSION}/" "$HASH" | sha256sum | cut -d' ' -f1)
+          MIRROR_HASH=$(git archive --format=tar --prefix="mtpoe-${VERSION}/" "$HASH" | \
+              zstd -T0 --ultra -20 -c | sha256sum | cut -d' ' -f1)
           sed -i \
             -e "s/PKG_SOURCE_VERSION:=HEAD/PKG_SOURCE_VERSION:=$HASH/" \
             -e "s/PKG_MIRROR_HASH:=skip/PKG_MIRROR_HASH:=$MIRROR_HASH/" \
