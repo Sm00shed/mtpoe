@@ -11,14 +11,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set package version and hash
+      - name: Pin version and compute mirror hash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          HASH=$(git rev-parse HEAD)
-          PKG_HASH=$(curl -sL "https://github.com/sm00shed/mtpoe/archive/${HASH}.tar.gz" | sha256sum | cut -d' ' -f1)
+          COMMIT=$(git rev-parse HEAD)
+          PKG_NAME=$(grep '^PKG_NAME:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
+          PKG_VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
+          SUBDIR="${PKG_NAME}-${PKG_VERSION}"
+          SOURCE="${SUBDIR}.tar.zst"
+          SDK_IMAGE="openwrtorg/sdk:aarch64_cortex-a72-SNAPSHOT"
+
+          # Pull now so the build step reuses the cached image layers
+          docker pull "$SDK_IMAGE"
+
+          # Commit timestamp — same query as dl_github_archive.py
+          TS=$(curl -sf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/sm00shed/mtpoe/commits/${COMMIT}" \
+            | python3 -c "
+          import sys, json, calendar, datetime
+          d = json.load(sys.stdin)
+          dt = datetime.datetime.strptime(d['commit']['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
+          print(calendar.timegm(dt.timetuple()))
+          ")
+
+          # GitHub API tarball — same endpoint as dl_github_archive.py
+          curl -sfL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/sm00shed/mtpoe/tarball/${COMMIT}" \
+            -o /tmp/src.tar.gz
+
+          # Repack inside SDK Docker — identical tar/zstd versions as the build step
+          MIRROR_HASH=$(docker run --rm \
+            -v /tmp/src.tar.gz:/src.tar.gz:ro \
+            -e SUBDIR="$SUBDIR" \
+            -e SOURCE="$SOURCE" \
+            -e TS="$TS" \
+            "$SDK_IMAGE" \
+            bash -c '
+              set -e
+              mkdir -p /tmp/untar
+              tar -C /tmp/untar -xzf /src.tar.gz --no-same-permissions
+              prefix=$(ls /tmp/untar | head -1)
+              mv "/tmp/untar/$prefix" "/tmp/untar/$SUBDIR"
+              tar --numeric-owner --owner=0 --group=0 --sort=name --mode=a-s \
+                -C /tmp/untar -cf "/tmp/$SOURCE" "$SUBDIR" \
+                --mtime=@$TS \
+                -I "zstd -T0 --ultra -20"
+              sha256sum "/tmp/$SOURCE" | cut -d" " -f1
+            ')
+
           sed -i \
-            -e "s|PKG_SOURCE_VERSION:=HEAD|PKG_SOURCE_VERSION:=$HASH|" \
-            -e "s|PKG_HASH:=.*|PKG_HASH:=$PKG_HASH|" \
+            -e "s|PKG_SOURCE_VERSION:=HEAD|PKG_SOURCE_VERSION:=$COMMIT|" \
+            -e "s|PKG_MIRROR_HASH:=skip|PKG_MIRROR_HASH:=$MIRROR_HASH|" \
             openwrt/package/utils/mtpoe/Makefile
 
       - name: Expose package at feed root
