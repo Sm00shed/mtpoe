@@ -21,7 +21,7 @@ jobs:
           PKG_VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
           SUBDIR="${PKG_NAME}-${PKG_VERSION}"
           SOURCE="${SUBDIR}.tar.zst"
-          SDK_IMAGE="openwrtorg/sdk:aarch64_cortex-a72-SNAPSHOT"
+          SDK_IMAGE="openwrt/sdk:aarch64_cortex-a72-SNAPSHOT"
 
           # Pull now so the build step reuses the cached image layers
           docker pull "$SDK_IMAGE"
