@@ -12,57 +12,39 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Pin version and compute mirror hash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           COMMIT=$(git rev-parse HEAD)
           PKG_NAME=$(grep '^PKG_NAME:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
           PKG_VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
           SUBDIR="${PKG_NAME}-${PKG_VERSION}"
-          SOURCE="${SUBDIR}.tar.zst"
           SDK_IMAGE="openwrt/sdk:aarch64_cortex-a72-SNAPSHOT"
 
-          # Pull now so the build step reuses the cached image layers
+          # Pull now so the build step reuses the cached layers
           docker pull "$SDK_IMAGE"
 
-          # Commit timestamp — same query as dl_github_archive.py
-          TS=$(curl -sf \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/sm00shed/mtpoe/commits/${COMMIT}" \
-            | python3 -c "
-          import sys, json, calendar, datetime
-          d = json.load(sys.stdin)
-          dt = datetime.datetime.strptime(d['commit']['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
-          print(calendar.timegm(dt.timetuple()))
-          ")
-
-          # GitHub API tarball — same endpoint as dl_github_archive.py
-          curl -sfL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/sm00shed/mtpoe/tarball/${COMMIT}" \
-            -o /tmp/src.tar.gz
-
-          # Repack inside SDK Docker — identical tar/zstd versions as the build step
+          # Replicate the SDK's rawgit method exactly (same Docker, same commands as download.mk)
           MIRROR_HASH=$(docker run --rm \
-            -v /tmp/src.tar.gz:/src.tar.gz:ro \
             -e SUBDIR="$SUBDIR" \
-            -e SOURCE="$SOURCE" \
-            -e TS="$TS" \
+            -e COMMIT="$COMMIT" \
             "$SDK_IMAGE" \
             bash -c '
               set -e
-              mkdir -p /tmp/untar
-              tar -C /tmp/untar -xzf /src.tar.gz --no-same-permissions
-              prefix=$(ls /tmp/untar | head -1)
-              mv "/tmp/untar/$prefix" "/tmp/untar/$SUBDIR"
-              tar --numeric-owner --owner=0 --group=0 --sort=name --mode=a-s \
-                -C /tmp/untar -cf "/tmp/$SOURCE" "$SUBDIR" \
-                --mtime=@$TS \
-                -I "zstd -T0 --ultra -20"
-              sha256sum "/tmp/$SOURCE" | cut -d" " -f1
+              cd /tmp
+              git clone --quiet https://github.com/sm00shed/mtpoe.git "$SUBDIR"
+              ( cd "$SUBDIR" && git checkout --quiet "$COMMIT" )
+              TAR_TIMESTAMP=$(cd "$SUBDIR" && git log -1 --no-show-signature --format=@%ct)
+              ( cd "$SUBDIR" && git config core.abbrev 8 && \
+                git archive --format=tar HEAD --output="../${SUBDIR}.tar.git" )
+              tar --numeric-owner --owner=0 --group=0 --ignore-failed-read \
+                  -C "$SUBDIR" -f "${SUBDIR}.tar.git" \
+                  -r .git .gitmodules 2>/dev/null || true
+              rm -rf "$SUBDIR" && mkdir "$SUBDIR"
+              tar -C "$SUBDIR" -xf "${SUBDIR}.tar.git"
+              ( cd "$SUBDIR" && rm -rf .git .gitmodules )
+              tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
+                  --mtime="$TAR_TIMESTAMP" -c "$SUBDIR" | \
+                  zstd -T0 --ultra -20 -c | sha256sum | cut -d" " -f1
             ')
 
           sed -i \
