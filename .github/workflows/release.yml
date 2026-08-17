@@ -18,7 +18,7 @@ jobs:
           PKG_HASH=$(curl -sL "https://github.com/sm00shed/mtpoe/archive/${HASH}.tar.gz" | sha256sum | cut -d' ' -f1)
           sed -i \
             -e "s|PKG_SOURCE_VERSION:=HEAD|PKG_SOURCE_VERSION:=$HASH|" \
-            -e "s|PKG_HASH:=0000000000000000000000000000000000000000000000000000000000000000|PKG_HASH:=$PKG_HASH|" \
+            -e "s|PKG_HASH:=.*|PKG_HASH:=$PKG_HASH|" \
             openwrt/package/utils/mtpoe/Makefile
 
       - name: Expose package at feed root
