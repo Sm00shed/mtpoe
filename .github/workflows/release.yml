@@ -11,45 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pin version and compute mirror hash
+      - name: Compute source hash
         run: |
           set -e
-          COMMIT=$(git rev-parse HEAD)
-          PKG_NAME=$(grep '^PKG_NAME:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
-          PKG_VERSION=$(grep '^PKG_VERSION:=' openwrt/package/utils/mtpoe/Makefile | cut -d= -f2)
-          SUBDIR="${PKG_NAME}-${PKG_VERSION}"
-          SDK_IMAGE="openwrt/sdk:aarch64_cortex-a72-SNAPSHOT"
-
-          # Pull now so the build step reuses the cached layers
-          docker pull "$SDK_IMAGE"
-
-          # Replicate the SDK's rawgit method exactly (same Docker, same commands as download.mk)
-          MIRROR_HASH=$(docker run --rm \
-            -e SUBDIR="$SUBDIR" \
-            -e COMMIT="$COMMIT" \
-            "$SDK_IMAGE" \
-            bash -c '
-              set -e
-              cd /tmp
-              git clone --quiet https://github.com/sm00shed/mtpoe.git "$SUBDIR"
-              ( cd "$SUBDIR" && git checkout --quiet "$COMMIT" )
-              TAR_TIMESTAMP=$(cd "$SUBDIR" && git log -1 --no-show-signature --format=@%ct)
-              ( cd "$SUBDIR" && git config core.abbrev 8 && \
-                git archive --format=tar HEAD --output="../${SUBDIR}.tar.git" )
-              tar --numeric-owner --owner=0 --group=0 --ignore-failed-read \
-                  -C "$SUBDIR" -f "${SUBDIR}.tar.git" \
-                  -r .git .gitmodules 2>/dev/null || true
-              rm -rf "$SUBDIR" && mkdir "$SUBDIR"
-              tar -C "$SUBDIR" -xf "${SUBDIR}.tar.git"
-              ( cd "$SUBDIR" && rm -rf .git .gitmodules )
-              tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
-                  --mtime="$TAR_TIMESTAMP" -c "$SUBDIR" | \
-                  zstd -T0 --ultra -20 -c | sha256sum | cut -d" " -f1
-            ')
-
-          sed -i \
-            -e "s|PKG_SOURCE_VERSION:=HEAD|PKG_SOURCE_VERSION:=$COMMIT|" \
-            -e "s|PKG_MIRROR_HASH:=skip|PKG_MIRROR_HASH:=$MIRROR_HASH|" \
+          TAG="${{ github.ref_name }}"
+          PKG_HASH=$(curl -fsSL \
+            "https://github.com/sm00shed/mtpoe/archive/refs/tags/${TAG}.tar.gz" \
+            | sha256sum | cut -d' ' -f1)
+          sed -i "s|PKG_HASH:=skip|PKG_HASH:=$PKG_HASH|" \
             openwrt/package/utils/mtpoe/Makefile
 
       - name: Expose package at feed root

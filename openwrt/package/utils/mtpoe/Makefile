@@ -8,10 +8,9 @@ PKG_NAME:=mtpoe
 PKG_VERSION:=0.1.2
 PKG_RELEASE:=1
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/sm00shed/mtpoe.git
-PKG_SOURCE_VERSION:=HEAD
-PKG_MIRROR_HASH:=skip
+PKG_SOURCE:=v$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/sm00shed/mtpoe/archive/refs/tags/
+PKG_HASH:=skip
 
 PKG_MAINTAINER:=Steffen (Sm00shed)
 PKG_LICENSE:=GPL-2.0
