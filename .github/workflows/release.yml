@@ -1,3 +1,4 @@
+
 name: Release
 
 on:
@@ -8,8 +9,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache OpenWrt SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/openwrt-sdk
+          key: openwrt-sdk-aarch64_cortex-a72-SNAPSHOT
+          restore-keys: |
+            openwrt-sdk-aarch64_cortex-a72-
 
       - name: Compute source hash
         run: |
